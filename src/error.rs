@@ -1,5 +1,7 @@
 use nix::errno::Errno;
 
+
+
 #[derive(Debug)]
 pub enum CreateError {
     Argument,
@@ -13,6 +15,11 @@ pub enum CreateError {
 pub enum ChannelError {
     Index,
     Mem(MemError)
+}
+
+#[derive(Debug)]
+pub enum QueueError {
+    NoMsgAvailable
 }
 
 #[derive(Debug)]

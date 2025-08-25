@@ -82,7 +82,7 @@ impl<T> Producer<T> {
         self.channel.force_put()
     }
 
-    pub fn try_put(&mut self) -> bool {
+    pub fn try_put(&mut self) -> Result<(), QueueError> {
         self.channel.try_put()
     }
 }
@@ -108,24 +108,18 @@ impl<T> Consumer<T> {
         Some(unsafe { &*ptr })
     }
 
-    pub fn fetch_tail(&mut self) -> Option<&T> {
-        let res = self.channel.fetch_tail();
+    pub fn fetch_tail(&mut self) -> Result<Option<&T>, QueueError> {
+        let res = self.channel.fetch_tail()?;
 
         match res {
-            FetchResult::None => None,
-            FetchResult::Same => None,
-            FetchResult::New => self.msg(),
+            FetchResult::Same => Ok(None),
+            FetchResult::New => Ok(self.msg()),
         }
     }
 
-    pub fn fetch_head(&mut self) -> Option<&T> {
-        let success = self.channel.fetch_head();
-
-        if !success {
-            return None;
-        }
-
-        self.msg()
+    pub fn fetch_head(&mut self) -> Result<Option<&T>, QueueError> {
+        self.channel.fetch_head()?;
+        Ok(self.msg())
     }
 }
 

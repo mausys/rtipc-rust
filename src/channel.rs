@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
+use std::error::Error;
 
 use crate::cache::cacheline_aligned;
 use crate::error::*;
@@ -20,7 +21,6 @@ const ORIGIN_MASK: Index = CONSUMED_FLAG;
 const INDEX_MASK: Index = !ORIGIN_MASK;
 
 pub enum FetchResult {
-    None,
     Same,
     New,
 }
@@ -284,8 +284,7 @@ impl ProducerChannel {
     }
 
     /* trys to insert the next message into the queue */
-    pub(crate) fn try_put(&mut self) -> bool {
-        let mut enqued = false;
+    pub(crate) fn try_put(&mut self) -> Result<(), QueueError> {
         let next = self.channel.queue_load(self.current);
 
         let tail = self.channel.tail_load();
@@ -304,18 +303,19 @@ impl ProducerChannel {
 
                 self.current = self.overrun;
                 self.overrun = INVALID_INDEX;
-                enqued = true;
+                return Ok(());
             }
         } else {
             /* no previous overrun, use next or after next message */
             if !full {
                 self.enqueue_msg();
                 self.current = next;
-                enqued = true;
+                return Ok(());
             }
         }
-        enqued
+        Err(QueueError::NoMsgAvailable)
     }
+
 }
 
 pub struct ConsumerChannel {
@@ -345,13 +345,13 @@ impl ConsumerChannel {
         Some(ptr.cast())
     }
 
-    pub(crate) fn fetch_head(&mut self) -> bool {
+    pub(crate) fn fetch_head(&mut self) -> Result<(), QueueError> {
         loop {
             let tail = self.channel.tail_fetch_or(CONSUMED_FLAG);
 
             if tail == INVALID_INDEX {
                 /* or CONSUMED_FLAG doesn't change INDEX_END*/
-                return false;
+                return Err(QueueError::NoMsgAvailable);
             }
 
             let head = self.channel.head_load();
@@ -364,16 +364,16 @@ impl ConsumerChannel {
                  *  otherwise the producer could fill the whole queue and the head could be the
                  *  producers current message  */
                 self.current = head;
-                return true;
+                return Ok(());
             }
         }
     }
 
-    pub(crate) fn fetch_tail(&mut self) -> FetchResult {
+    pub(crate) fn fetch_tail(&mut self) -> Result<FetchResult, QueueError> {
         let tail = self.channel.tail_fetch_or(CONSUMED_FLAG);
 
         if tail == INVALID_INDEX {
-            return FetchResult::None;
+            return Err(QueueError::NoMsgAvailable);
         }
 
         if tail & CONSUMED_FLAG != 0 {
@@ -381,7 +381,7 @@ impl ConsumerChannel {
             let next = self.channel.queue_load(self.current);
 
             if next == INVALID_INDEX {
-                return FetchResult::Same;
+                return Ok(FetchResult::Same);
             }
 
             if self
@@ -398,6 +398,6 @@ impl ConsumerChannel {
             self.current = tail;
         }
 
-        FetchResult::New
+        Ok(FetchResult::New)
     }
 }

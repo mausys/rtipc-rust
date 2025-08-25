@@ -49,7 +49,11 @@ impl fmt::Display for MsgCommand {
 
 impl fmt::Display for MsgResponse {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "id: {}\n\tresult: {}\n\tdata: {}", self.id as u32, self.result, self.data)
+        writeln!(
+            f,
+            "id: {}\n\tresult: {}\n\tdata: {}",
+            self.id as u32, self.result, self.data
+        )
     }
 }
 
@@ -105,20 +109,32 @@ impl Client {
 
             thread::sleep(pause);
             loop {
-                let rsp = self.response.fetch_tail();
-                if let Some(rsp) = rsp {
-                    println!("client received response: {}", rsp);
-                } else {
-                    break;
-                }
+                let rsp = match self.response.fetch_tail() {
+                    Ok(rsp) => {
+                        if rsp.is_none() {
+                            break;
+                        } else {
+                            rsp.unwrap()
+                        }
+                    }
+                    Err(_e) => break,
+                };
+
+                println!("client received response: {}", rsp);
             }
             loop {
-                let event = self.event.fetch_tail();
-                if let Some(event) = event {
-                    println!("client received event: {}", event);
-                } else {
-                    break;
-                }
+                let event = match self.event.fetch_tail() {
+                    Ok(event) => {
+                        if event.is_none() {
+                            break;
+                        } else {
+                            event.unwrap()
+                        }
+                    }
+                    Err(_e) => break,
+                };
+
+                println!("client received event: {}", event);
             }
         }
     }
@@ -154,31 +170,44 @@ impl Server {
         let mut cnt = 0;
 
         while run {
-            let cmd = self.command.fetch_tail();
-            if let Some(cmd) = cmd {
-                self.response.msg().id = cmd.id;
-                let args: [i32;3] = cmd.args;
-                println!("server received command: {}", cmd);
-
-                self.response.msg().result = match cmd.id {
-                    CommandId::Hello => 0,
-                    CommandId::Stop => {
-                        run = false;
-                        0
+            thread::sleep(pause);
+            let cmd = match self.command.fetch_tail() {
+                Ok(cmd) => {
+                    if cmd.is_none() {
+                        continue;
+                    } else {
+                        cmd.unwrap()
                     }
-                    CommandId::SendEvent => self.send_events(args[0] as u32, args[1] as u32, args[2] != 0),
-                    CommandId::Div => {let (err, res) = self.div(args[0], args[1]); self.response.msg().data = res; err },
-                    _ => {
-                        println!("unknown Command");
-                        -1
-                    }
-                };
-                self.response.force_put();
-
-                cnt = cnt + 1;
+                }
+                Err(_e) => continue,
             };
 
-            thread::sleep(pause);
+            self.response.msg().id = cmd.id;
+            let args: [i32; 3] = cmd.args;
+            println!("server received command: {}", cmd);
+
+            self.response.msg().result = match cmd.id {
+                CommandId::Hello => 0,
+                CommandId::Stop => {
+                    run = false;
+                    0
+                }
+                CommandId::SendEvent => {
+                    self.send_events(args[0] as u32, args[1] as u32, args[2] != 0)
+                }
+                CommandId::Div => {
+                    let (err, res) = self.div(args[0], args[1]);
+                    self.response.msg().data = res;
+                    err
+                }
+                _ => {
+                    println!("unknown Command");
+                    -1
+                }
+            };
+            self.response.force_put();
+
+            cnt = cnt + 1;
         }
     }
     fn send_events(&mut self, id: u32, num: u32, force: bool) -> i32 {
@@ -187,9 +216,9 @@ impl Server {
             event.id = id;
             event.nr = i;
             if force {
-                 self.event.force_put();
+                self.event.force_put();
             } else {
-                if !self.event.try_put() {
+                if self.event.try_put().is_err() {
                     return i as i32;
                 }
             }

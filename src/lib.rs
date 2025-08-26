@@ -19,16 +19,16 @@ use nix::sys::stat::Mode;
 
 use crate::{
     cache::cacheline_aligned,
-    shm::{Chunk, SharedMemory, Span},
+    channel::{ConsumerChannel, ProducerChannel},
     header::Header,
+    shm::{Chunk, SharedMemory, Span},
     table::ChannelTable,
-    channel::{ConsumerChannel, FetchResult, ProducerChannel},
 };
 
+pub use channel::{ConsumeResult, ProduceForceResult, ProduceTryResult};
 pub use error::*;
 
 pub use log;
-
 
 pub(crate) type AtomicIndex = AtomicU32;
 pub(crate) type Index = u32;
@@ -78,12 +78,12 @@ impl<T> Producer<T> {
         unsafe { &mut *ptr }
     }
 
-    pub fn force_put(&mut self) -> bool {
-        self.channel.force_put()
+    pub fn force_push(&mut self) -> ProduceForceResult {
+        self.channel.force_push()
     }
 
-    pub fn try_put(&mut self) -> Result<(), QueueError> {
-        self.channel.try_put()
+    pub fn try_push(&mut self) -> ProduceTryResult {
+        self.channel.try_push()
     }
 }
 
@@ -108,18 +108,12 @@ impl<T> Consumer<T> {
         Some(unsafe { &*ptr })
     }
 
-    pub fn fetch_tail(&mut self) -> Result<Option<&T>, QueueError> {
-        let res = self.channel.fetch_tail()?;
-
-        match res {
-            FetchResult::Same => Ok(None),
-            FetchResult::New => Ok(self.msg()),
-        }
+    pub fn pop(&mut self) -> ConsumeResult {
+        self.channel.pop()
     }
 
-    pub fn fetch_head(&mut self) -> Result<Option<&T>, QueueError> {
-        self.channel.fetch_head()?;
-        Ok(self.msg())
+    pub fn flush(&mut self) -> ConsumeResult {
+        self.channel.flush()
     }
 }
 

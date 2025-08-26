@@ -1,12 +1,9 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
-use std::error::Error;
 
 use crate::cache::cacheline_aligned;
 use crate::error::*;
 use crate::shm::{Chunk, Span};
-
-
 
 use crate::AtomicIndex;
 use crate::ChannelParam;
@@ -20,9 +17,24 @@ const ORIGIN_MASK: Index = CONSUMED_FLAG;
 
 const INDEX_MASK: Index = !ORIGIN_MASK;
 
-pub enum FetchResult {
-    Same,
-    New,
+#[derive(PartialEq, Eq)]
+pub enum ConsumeResult {
+    NoMsgAvailable,
+    NoUpdate,
+    Success,
+    MsgsDiscarded,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum ProduceForceResult {
+    Success,
+    MsgDiscarded,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum ProduceTryResult {
+    Fail,
+    Success,
 }
 
 struct Channel {
@@ -219,7 +231,7 @@ impl ProducerChannel {
     /* inserts the next message into the queue and
      * if the queue is full, discard the last message that is not
      * used by consumer. Returns pointer to new message */
-    pub(crate) fn force_put(&mut self) -> bool {
+    pub(crate) fn force_push(&mut self) -> ProduceForceResult {
         let mut discarded = false;
 
         let next = self.channel.queue_load(self.current);
@@ -267,6 +279,7 @@ impl ProducerChannel {
                 if self.channel.move_tail(tail) {
                     /* message queue is full -> tail & INDEX_MASK == next */
                     self.current = next;
+                    discarded = true;
                 } else {
                     /*  consumer just started and consumed tail
                      *  we're assuming that consumer flagged tail (tail | CONSUMED_FLAG),
@@ -280,11 +293,15 @@ impl ProducerChannel {
             }
         }
 
-        discarded
+        if discarded {
+            ProduceForceResult::MsgDiscarded
+        } else {
+            ProduceForceResult::Success
+        }
     }
 
     /* trys to insert the next message into the queue */
-    pub(crate) fn try_put(&mut self) -> Result<(), QueueError> {
+    pub(crate) fn try_push(&mut self) -> ProduceTryResult {
         let next = self.channel.queue_load(self.current);
 
         let tail = self.channel.tail_load();
@@ -303,19 +320,18 @@ impl ProducerChannel {
 
                 self.current = self.overrun;
                 self.overrun = INVALID_INDEX;
-                return Ok(());
+                return ProduceTryResult::Success;
             }
         } else {
             /* no previous overrun, use next or after next message */
             if !full {
                 self.enqueue_msg();
                 self.current = next;
-                return Ok(());
+                return ProduceTryResult::Success;
             }
         }
-        Err(QueueError::NoMsgAvailable)
+        ProduceTryResult::Fail
     }
-
 }
 
 pub struct ConsumerChannel {
@@ -345,13 +361,13 @@ impl ConsumerChannel {
         Some(ptr.cast())
     }
 
-    pub(crate) fn fetch_head(&mut self) -> Result<(), QueueError> {
+    pub(crate) fn flush(&mut self) -> ConsumeResult {
         loop {
             let tail = self.channel.tail_fetch_or(CONSUMED_FLAG);
 
             if tail == INVALID_INDEX {
                 /* or CONSUMED_FLAG doesn't change INDEX_END*/
-                return Err(QueueError::NoMsgAvailable);
+                return ConsumeResult::NoMsgAvailable;
             }
 
             let head = self.channel.head_load();
@@ -364,40 +380,41 @@ impl ConsumerChannel {
                  *  otherwise the producer could fill the whole queue and the head could be the
                  *  producers current message  */
                 self.current = head;
-                return Ok(());
+                return ConsumeResult::Success;
             }
         }
     }
 
-    pub(crate) fn fetch_tail(&mut self) -> Result<FetchResult, QueueError> {
+    pub(crate) fn pop(&mut self) -> ConsumeResult {
         let tail = self.channel.tail_fetch_or(CONSUMED_FLAG);
 
         if tail == INVALID_INDEX {
-            return Err(QueueError::NoMsgAvailable);
+            return ConsumeResult::NoMsgAvailable;
         }
 
-        if tail & CONSUMED_FLAG != 0 {
-            /* try to get next message */
-            let next = self.channel.queue_load(self.current);
-
-            if next == INVALID_INDEX {
-                return Ok(FetchResult::Same);
-            }
-
-            if self
-                .channel
-                .tail_compare_exchange(tail, next | CONSUMED_FLAG)
-            {
-                self.current = next;
-            } else {
-                /* producer just moved tail, use it */
-                self.current = self.channel.tail_fetch_or(CONSUMED_FLAG);
-            }
-        } else {
+        if tail & CONSUMED_FLAG == 0 {
             /* producer moved tail, use it */
             self.current = tail;
+            return ConsumeResult::MsgsDiscarded;
         }
 
-        Ok(FetchResult::New)
+        /* try to get next message */
+        let next = self.channel.queue_load(self.current);
+
+        if next == INVALID_INDEX {
+            return ConsumeResult::NoUpdate;
+        }
+
+        if self
+            .channel
+            .tail_compare_exchange(tail, next | CONSUMED_FLAG)
+        {
+            self.current = next;
+            ConsumeResult::Success
+        } else {
+            /* producer just moved tail, use it */
+            self.current = self.channel.tail_fetch_or(CONSUMED_FLAG);
+            ConsumeResult::MsgsDiscarded
+        }
     }
 }

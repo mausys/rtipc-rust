@@ -1,6 +1,6 @@
 use crate::cache::max_cacheline_size;
-use crate::shm::Chunk;
 use crate::error::*;
+use crate::shm::Chunk;
 use crate::Index;
 
 const RTIC_MAGIC: u16 = 0x1f0c;

@@ -1,13 +1,17 @@
-use rtipc::ChannelParam;
-use rtipc::Consumer;
-use rtipc::Producer;
-use rtipc::RtIpc;
 use std::fmt;
 use std::mem::size_of;
 use std::num::NonZeroUsize;
 use std::os::fd::OwnedFd;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{thread, time};
+
+use rtipc::ChannelParam;
+use rtipc::ConsumeResult;
+use rtipc::Consumer;
+use rtipc::ProduceForceResult;
+use rtipc::ProduceTryResult;
+use rtipc::Producer;
+use rtipc::RtIpc;
 
 #[derive(Copy, Clone, Debug)]
 enum CommandId {
@@ -105,36 +109,27 @@ impl Client {
 
         for cmd in cmds {
             self.command.msg().clone_from(cmd);
-            self.command.force_put();
+            self.command.force_push();
 
             thread::sleep(pause);
             loop {
-                let rsp = match self.response.fetch_tail() {
-                    Ok(rsp) => {
-                        if rsp.is_none() {
-                            break;
-                        } else {
-                            rsp.unwrap()
-                        }
-                    }
-                    Err(_e) => break,
+                match self.response.pop() {
+                    ConsumeResult::NoMsgAvailable => break,
+                    ConsumeResult::NoUpdate => break,
+                    ConsumeResult::Success => {}
+                    ConsumeResult::MsgsDiscarded => {}
                 };
 
-                println!("client received response: {}", rsp);
+                println!("client received response: {}", self.response.msg().unwrap());
             }
             loop {
-                let event = match self.event.fetch_tail() {
-                    Ok(event) => {
-                        if event.is_none() {
-                            break;
-                        } else {
-                            event.unwrap()
-                        }
-                    }
-                    Err(_e) => break,
+                match self.event.pop() {
+                    ConsumeResult::NoMsgAvailable => break,
+                    ConsumeResult::NoUpdate => break,
+                    ConsumeResult::Success => {}
+                    ConsumeResult::MsgsDiscarded => {}
                 };
-
-                println!("client received event: {}", event);
+                println!("client received event: {}", self.event.msg().unwrap());
             }
         }
     }
@@ -171,17 +166,13 @@ impl Server {
 
         while run {
             thread::sleep(pause);
-            let cmd = match self.command.fetch_tail() {
-                Ok(cmd) => {
-                    if cmd.is_none() {
-                        continue;
-                    } else {
-                        cmd.unwrap()
-                    }
-                }
-                Err(_e) => continue,
+            match self.command.pop() {
+                ConsumeResult::NoMsgAvailable => continue,
+                ConsumeResult::NoUpdate => continue,
+                ConsumeResult::Success => {}
+                ConsumeResult::MsgsDiscarded => {}
             };
-
+            let cmd = self.command.msg().unwrap();
             self.response.msg().id = cmd.id;
             let args: [i32; 3] = cmd.args;
             println!("server received command: {}", cmd);
@@ -205,7 +196,7 @@ impl Server {
                     -1
                 }
             };
-            self.response.force_put();
+            self.response.force_push();
 
             cnt = cnt + 1;
         }
@@ -216,9 +207,9 @@ impl Server {
             event.id = id;
             event.nr = i;
             if force {
-                self.event.force_put();
+                self.event.force_push();
             } else {
-                if self.event.try_put().is_err() {
+                if self.event.try_push() == ProduceTryResult::Fail {
                     return i as i32;
                 }
             }

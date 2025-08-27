@@ -114,6 +114,7 @@ impl Client {
             thread::sleep(pause);
             loop {
                 match self.response.pop() {
+                    ConsumeResult::Error => panic!(),
                     ConsumeResult::NoMsgAvailable => break,
                     ConsumeResult::NoUpdate => break,
                     ConsumeResult::Success => {}
@@ -124,6 +125,7 @@ impl Client {
             }
             loop {
                 match self.event.pop() {
+                    ConsumeResult::Error => panic!(),
                     ConsumeResult::NoMsgAvailable => break,
                     ConsumeResult::NoUpdate => break,
                     ConsumeResult::Success => {}
@@ -167,6 +169,7 @@ impl Server {
         while run {
             thread::sleep(pause);
             match self.command.pop() {
+                ConsumeResult::Error => panic!(),
                 ConsumeResult::NoMsgAvailable => continue,
                 ConsumeResult::NoUpdate => continue,
                 ConsumeResult::Success => {}

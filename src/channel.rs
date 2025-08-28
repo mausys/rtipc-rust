@@ -243,11 +243,7 @@ impl ProducerChannel {
         let new_current = self.queue[(tail & INDEX_MASK) as usize]; /* next */
         let new_tail = self.queue[new_current as usize]; /* after next */
 
-        if channel
-            .tail()
-            .compare_exchange(tail, new_tail, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
+        if channel.tail_compare_exchange(tail, new_tail) {
             self.overrun = tail & INDEX_MASK;
             self.current = new_current;
             true

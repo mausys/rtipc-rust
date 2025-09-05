@@ -11,12 +11,12 @@ const RTIC_VERSION: u16 = 1;
 pub struct Header {
     magic: u16,
     version: u16,
-    cookie: u32,
     /**< cookie for object protocol */
-    pub num_channels: [u32; 2],
-    /**< number of channels for producers / consumers */
+    cookie: u32,
     cacheline_size: u16,
     atomic_size: u16,
+    /**< number of channels for producers / consumers */
+    pub num_channels: [u32; 2],
 }
 
 impl Header {

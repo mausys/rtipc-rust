@@ -199,9 +199,9 @@ impl RtIpc {
         })
     }
 
-    fn from_shm(shm: Arc<SharedMemory>, cookie: u32) -> Result<RtIpc, CreateError> {
+    fn from_shm(shm: Arc<SharedMemory>) -> Result<RtIpc, CreateError> {
         let chunk_header = RtIpc::chunk_header(&shm)?;
-        let header = Header::from_chunk(&chunk_header, cookie)?;
+        let header = Header::from_chunk(&chunk_header)?;
 
         let num_producers = header.num_channels[0] as usize;
         let num_consumers = header.num_channels[1] as usize;
@@ -222,12 +222,10 @@ impl RtIpc {
         shm: Arc<SharedMemory>,
         param_consumers: &[ChannelParam],
         param_producers: &[ChannelParam],
-        cookie: u32,
     ) -> Result<RtIpc, CreateError> {
         let header = Header::new(
             param_consumers.len() as u32,
             param_producers.len() as u32,
-            cookie,
         );
         let num_channels = NonZeroUsize::new(param_consumers.len() + param_producers.len())
             .ok_or(CreateError::Argument)?;
@@ -247,30 +245,28 @@ impl RtIpc {
     pub fn new_anon_shm(
         param_consumers: &[ChannelParam],
         param_producers: &[ChannelParam],
-        cookie: u32,
     ) -> Result<RtIpc, CreateError> {
         let shm_size = RtIpc::calc_shm_size(param_consumers, param_producers)?;
 
         let shm = SharedMemory::new_anon(shm_size)?;
-        RtIpc::new(shm, param_consumers, param_producers, cookie)
+        RtIpc::new(shm, param_consumers, param_producers)
     }
 
     pub fn new_named_shm(
         param_consumers: &[ChannelParam],
         param_producers: &[ChannelParam],
-        cookie: u32,
         path: &Path,
         mode: Mode,
     ) -> Result<RtIpc, CreateError> {
         let shm_size = RtIpc::calc_shm_size(param_consumers, param_producers)?;
 
         let shm = SharedMemory::new_named(shm_size, path, mode)?;
-        RtIpc::new(shm, param_consumers, param_producers, cookie)
+        RtIpc::new(shm, param_consumers, param_producers)
     }
 
-    pub fn from_fd(fd: OwnedFd, cookie: u32) -> Result<RtIpc, CreateError> {
+    pub fn from_fd(fd: OwnedFd) -> Result<RtIpc, CreateError> {
         let shm = SharedMemory::from_fd(fd)?;
-        RtIpc::from_shm(shm, cookie)
+        RtIpc::from_shm(shm)
     }
 
     pub fn take_consumer<T>(&mut self, index: usize) -> Result<Consumer<T>, ChannelError> {

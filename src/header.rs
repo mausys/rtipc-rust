@@ -12,7 +12,6 @@ pub struct Header {
     magic: u16,
     version: u16,
     /**< cookie for object protocol */
-    cookie: u32,
     cacheline_size: u16,
     atomic_size: u16,
     /**< number of channels for producers / consumers */
@@ -20,20 +19,19 @@ pub struct Header {
 }
 
 impl Header {
-    pub(crate) fn new(num_consumers: u32, num_producers: u32, cookie: u32) -> Self {
+    pub(crate) fn new(num_consumers: u32, num_producers: u32) -> Self {
         let cacheline_size: u16 = max_cacheline_size().try_into().unwrap();
         let atomic_size: u16 = std::mem::size_of::<Index>().try_into().unwrap();
         Header {
             magic: RTIC_MAGIC,
             version: RTIC_VERSION,
-            cookie,
             num_channels: [num_consumers, num_producers],
             cacheline_size,
             atomic_size,
         }
     }
 
-    pub(crate) fn from_chunk(chunk: &Chunk, cookie: u32) -> Result<Header, HeaderError> {
+    pub(crate) fn from_chunk(chunk: &Chunk) -> Result<Header, HeaderError> {
         let cacheline_size: u16 = max_cacheline_size().try_into().unwrap();
         let atomic_size: u16 = std::mem::size_of::<Index>().try_into().unwrap();
         let ptr: *const Header = chunk.get_ptr(0)?;
@@ -46,9 +44,6 @@ impl Header {
 
         if header.version != RTIC_VERSION {
             return Err(HeaderError::Version);
-        }
-        if header.cookie != cookie {
-            return Err(HeaderError::Cookie);
         }
 
         if header.cacheline_size != cacheline_size {

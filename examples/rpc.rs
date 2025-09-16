@@ -93,7 +93,7 @@ struct Client {
 
 impl Client {
     pub fn new(fd: OwnedFd) -> Self {
-        let mut rtipc = RtIpc::from_fd(fd, COOKIE).unwrap();
+        let mut rtipc = RtIpc::from_fd(fd).unwrap();
         let command = rtipc.take_producer(0).unwrap();
         let response = rtipc.take_consumer(0).unwrap();
         let event = rtipc.take_consumer(1).unwrap();
@@ -147,7 +147,7 @@ struct Server {
 impl Server {
     pub fn new() -> Server {
         let mut rtipc =
-            RtIpc::new_anon_shm(&CLIENT2SERVER_CHANNELS, &SERVER2CLIENT_CHANNELS, COOKIE).unwrap();
+            RtIpc::new_anon_shm(&CLIENT2SERVER_CHANNELS, &SERVER2CLIENT_CHANNELS).unwrap();
         let rfd = rtipc.get_fd();
         let fd = rfd.try_clone().unwrap();
         let command = rtipc.take_consumer(0).unwrap();

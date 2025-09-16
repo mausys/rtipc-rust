@@ -40,17 +40,17 @@ pub enum ProduceTryResult {
     Success,
 }
 
-struct Channel {
+struct Queue {
     _chunk: Chunk,
     msg_size: NonZeroUsize,
     head: *mut Index,
     tail: *mut Index,
-    queue: Vec<*mut Index>,
+    chain: Vec<*mut Index>,
     msgs: Vec<*mut ()>,
 }
 
-impl Channel {
-    pub fn new(chunk: Chunk, param: &ChannelParam) -> Result<Channel, MemError> {
+impl Queue {
+    pub fn new(chunk: Chunk, param: &ChannelParam) -> Result<Queue, MemError> {
         let queue_len = param.add_msgs + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
@@ -65,7 +65,7 @@ impl Channel {
         let tail: *mut Index = chunk.get_ptr(offset_index)?;
         offset_index += index_size;
 
-        let mut queue: Vec<*mut Index> = Vec::with_capacity(queue_len);
+        let mut chain: Vec<*mut Index> = Vec::with_capacity(queue_len);
         let mut msgs: Vec<*mut ()> = Vec::with_capacity(queue_len);
 
         for _ in 0..queue_len {
@@ -75,19 +75,19 @@ impl Channel {
                 size: msg_size,
             })?;
 
-            queue.push(index);
+            chain.push(index);
             msgs.push(msg);
 
             offset_index += index_size;
             offset_msg += msg_size.get();
         }
 
-        Ok(Channel {
+        Ok(Queue {
             _chunk: chunk,
             msg_size: param.msg_size,
             head,
             tail,
-            queue,
+            chain,
             msgs,
         })
     }
@@ -100,7 +100,7 @@ impl Channel {
         self.tail_store(INVALID_INDEX);
         self.head_store(INVALID_INDEX);
 
-        let last = self.queue.len() - 1;
+        let last = self.chain.len() - 1;
 
         for idx in 0..last {
             self.queue_store(idx as Index, (idx + 1) as Index);
@@ -121,8 +121,8 @@ impl Channel {
         unsafe { AtomicIndex::from_ptr(self.head) }
     }
 
-    fn queue(&self, idx: Index) -> &AtomicIndex {
-        unsafe { AtomicIndex::from_ptr(self.queue[idx as usize]) }
+    fn chain(&self, idx: Index) -> &AtomicIndex {
+        unsafe { AtomicIndex::from_ptr(self.chain[idx as usize]) }
     }
 
     pub(self) fn tail_load(&self) -> Index {
@@ -151,79 +151,79 @@ impl Channel {
         self.head().store(val, Ordering::SeqCst);
     }
 
-    pub(self) fn queue_load(&self, idx: Index) -> Index {
-        self.queue(idx).load(Ordering::SeqCst)
+    pub(self) fn chain_load(&self, idx: Index) -> Index {
+        self.chain(idx).load(Ordering::SeqCst)
     }
 
     pub(self) fn queue_store(&self, idx: Index, val: Index) {
-        self.queue(idx).store(val, Ordering::SeqCst);
+        self.chain(idx).store(val, Ordering::SeqCst);
     }
 
     pub(self) fn len(&self) -> usize {
-        self.queue.len()
+        self.chain.len()
     }
 }
 
-pub struct ProducerChannel {
-    channel: Channel,
-    queue: Vec<Index>, /* local copy of queue, because queue is read only for consumer */
+pub struct ProducerQueue {
+    queue: Queue,
+    chain: Vec<Index>, /* local copy of queue, because queue is read only for consumer */
     head: Index, /* last message in chain that can be used by consumer, chain[head] is always INDEX_END */
     current: Index, /* message used by producer, will become head  */
     overrun: Index, /* message used by consumer when tail moved away by producer, will become current when released by consumer */
 }
 
-impl ProducerChannel {
-    pub(crate) fn new(chunk: Chunk, param: &ChannelParam) -> Result<ProducerChannel, MemError> {
-        let channel = Channel::new(chunk, param)?;
-        let queue_len = channel.len();
-        let mut queue: Vec<Index> = Vec::with_capacity(queue_len);
+impl ProducerQueue {
+    pub(crate) fn new(chunk: Chunk, param: &ChannelParam) -> Result<ProducerQueue, MemError> {
+        let queue = Queue::new(chunk, param)?;
+        let queue_len = queue.len();
+        let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
         for i in 0..queue_len - 1 {
             let next = i + 1;
-            queue.push(next as Index);
+            chain.push(next as Index);
         }
 
-        queue.push(0);
+        chain.push(0);
 
-        Ok(ProducerChannel {
-            channel,
-            head: INVALID_INDEX,
+        Ok(ProducerQueue {
             queue,
+            head: INVALID_INDEX,
+            chain,
             current: 0,
             overrun: INVALID_INDEX,
         })
     }
 
     pub(crate) fn init(&self) {
-        self.channel.init();
+        self.queue.init();
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
-        self.channel.msg_size()
+        self.queue.msg_size()
     }
 
     pub(crate) fn current(&self) -> *mut () {
-        let ptr = self.channel.msgs.get(self.current as usize).unwrap();
+        let ptr = self.queue.msgs.get(self.current as usize).unwrap();
         ptr.cast()
     }
 
     fn queue_store(&mut self, idx: Index, val: Index) {
-        self.queue[idx as usize] = val;
-        self.channel.queue_store(idx, val);
+        self.chain[idx as usize] = val;
+        self.queue.queue_store(idx, val);
     }
 
     fn move_tail(&self, tail: Index) -> bool {
-        let next = self.queue[(tail & INDEX_MASK) as usize];
-        self.channel.tail_compare_exchange(tail, next)
+        let next = self.chain[(tail & INDEX_MASK) as usize];
+        self.queue.tail_compare_exchange(tail, next)
     }
 
     fn enqueue_first_msg(&mut self) {
         self.queue_store(self.current, INVALID_INDEX);
 
-        self.channel.tail_store(self.current);
+        self.queue.tail_store(self.current);
 
         self.head = self.current;
 
-        self.channel.head_store(self.head);
+        self.queue.head_store(self.head);
     }
 
     fn enqueue_msg(&mut self) {
@@ -233,17 +233,17 @@ impl ProducerChannel {
 
         self.head = self.current;
 
-        self.channel.head_store(self.head);
+        self.queue.head_store(self.head);
     }
 
     /* try to jump over tail blocked by consumer */
     fn overrun(&mut self, tail: Index) -> bool {
-        let channel = &mut self.channel;
+        let queue = &mut self.queue;
 
-        let new_current = self.queue[(tail & INDEX_MASK) as usize]; /* next */
-        let new_tail = self.queue[new_current as usize]; /* after next */
+        let new_current = self.chain[(tail & INDEX_MASK) as usize]; /* next */
+        let new_tail = self.chain[new_current as usize]; /* after next */
 
-        if channel.tail_compare_exchange(tail, new_tail) {
+        if queue.tail_compare_exchange(tail, new_tail) {
             self.overrun = tail & INDEX_MASK;
             self.current = new_current;
             true
@@ -258,7 +258,7 @@ impl ProducerChannel {
      * if the queue is full, discard the last message that is not
      * used by consumer. Returns pointer to new message */
     pub(crate) fn force_push(&mut self) -> ProduceForceResult {
-        let next = self.queue[self.current as usize];
+        let next = self.chain[self.current as usize];
 
         if self.head == INVALID_INDEX {
             self.enqueue_first_msg();
@@ -270,9 +270,9 @@ impl ProducerChannel {
 
         self.enqueue_msg();
 
-        let tail = self.channel.tail_load();
+        let tail = self.queue.tail_load();
 
-        if !self.channel.is_valid_index(tail & INDEX_MASK) {
+        if !self.queue.is_valid_index(tail & INDEX_MASK) {
             return ProduceForceResult::Error;
         }
 
@@ -338,7 +338,7 @@ impl ProducerChannel {
 
     /* trys to insert the next message into the queue */
     pub(crate) fn try_push(&mut self) -> ProduceTryResult {
-        let next = self.queue[self.current as usize];
+        let next = self.chain[self.current as usize];
 
         if self.head == INVALID_INDEX {
             self.enqueue_first_msg();
@@ -346,9 +346,9 @@ impl ProducerChannel {
             return ProduceTryResult::Success;
         }
 
-        let tail = self.channel.tail_load();
+        let tail = self.queue.tail_load();
 
-        if !self.channel.is_valid_index(tail & INDEX_MASK) {
+        if !self.queue.is_valid_index(tail & INDEX_MASK) {
             return ProduceTryResult::Error;
         }
 
@@ -380,54 +380,54 @@ impl ProducerChannel {
     }
 }
 
-pub struct ConsumerChannel {
-    channel: Channel,
+pub struct ConsumerQueue {
+    queue: Queue,
     current: Index,
 }
 
-impl ConsumerChannel {
-    pub(crate) fn new(chunk: Chunk, param: &ChannelParam) -> Result<ConsumerChannel, MemError> {
-        let channel = Channel::new(chunk, param)?;
-        Ok(ConsumerChannel {
-            channel,
+impl ConsumerQueue {
+    pub(crate) fn new(chunk: Chunk, param: &ChannelParam) -> Result<ConsumerQueue, MemError> {
+        let queue = Queue::new(chunk, param)?;
+        Ok(ConsumerQueue {
+            queue,
             current: 0,
         })
     }
 
     pub(crate) fn init(&self) {
-        self.channel.init();
+        self.queue.init();
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
-        self.channel.msg_size()
+        self.queue.msg_size()
     }
 
     pub(crate) fn current(&self) -> Option<*const ()> {
-        let ptr = self.channel.msgs.get(self.current as usize)?;
+        let ptr = self.queue.msgs.get(self.current as usize)?;
         Some(ptr.cast())
     }
 
     pub(crate) fn flush(&mut self) -> ConsumeResult {
         loop {
-            let tail = self.channel.tail_fetch_or(CONSUMED_FLAG);
+            let tail = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
             if tail == INVALID_INDEX {
                 /* or CONSUMED_FLAG doesn't change INDEX_END*/
                 return ConsumeResult::NoMsgAvailable;
             }
 
-            if !self.channel.is_valid_index(tail & INDEX_MASK) {
+            if !self.queue.is_valid_index(tail & INDEX_MASK) {
                 return ConsumeResult::Error;
             }
 
-            let head = self.channel.head_load();
+            let head = self.queue.head_load();
 
-            if !self.channel.is_valid_index(head) {
+            if !self.queue.is_valid_index(head) {
                 return ConsumeResult::Error;
             }
 
             if self
-                .channel
+                .queue
                 .tail_compare_exchange(tail | CONSUMED_FLAG, head | CONSUMED_FLAG)
             {
                 /* only accept head if producer didn't move tail,
@@ -440,13 +440,13 @@ impl ConsumerChannel {
     }
 
     pub(crate) fn pop(&mut self) -> ConsumeResult {
-        let tail = self.channel.tail_fetch_or(CONSUMED_FLAG);
+        let tail = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
         if tail == INVALID_INDEX {
             return ConsumeResult::NoMsgAvailable;
         }
 
-        if !self.channel.is_valid_index(tail & INDEX_MASK) {
+        if !self.queue.is_valid_index(tail & INDEX_MASK) {
             return ConsumeResult::Error;
         }
 
@@ -457,27 +457,27 @@ impl ConsumerChannel {
         }
 
         /* try to get next message */
-        let next = self.channel.queue_load(self.current);
+        let next = self.queue.chain_load(self.current);
 
         if next == INVALID_INDEX {
             return ConsumeResult::NoUpdate;
         }
 
-        if !self.channel.is_valid_index(next) {
+        if !self.queue.is_valid_index(next) {
             return ConsumeResult::Error;
         }
 
         if self
-            .channel
+            .queue
             .tail_compare_exchange(tail, next | CONSUMED_FLAG)
         {
             self.current = next;
             ConsumeResult::Success
         } else {
             /* producer just moved tail, use it */
-            let current = self.channel.tail_fetch_or(CONSUMED_FLAG);
+            let current = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
-            if !self.channel.is_valid_index(current) {
+            if !self.queue.is_valid_index(current) {
                 return ConsumeResult::Error;
             }
 

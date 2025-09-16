@@ -19,7 +19,7 @@ use nix::sys::stat::Mode;
 
 use crate::{
     cache::cacheline_aligned,
-    channel::{ConsumerChannel, ProducerChannel},
+    channel::{ConsumerQueue, ProducerQueue},
     header::Header,
     shm::{Chunk, SharedMemory, Span},
     table::ChannelTable,
@@ -58,69 +58,69 @@ impl ChannelParam {
 }
 
 pub struct Producer<T> {
-    channel: ProducerChannel,
+    queue: ProducerQueue,
     _type: PhantomData<T>,
 }
 
 impl<T> Producer<T> {
-    pub(crate) fn new(channel: ProducerChannel) -> Result<Producer<T>, MemError> {
-        if size_of::<T>() > channel.msg_size().get() {
+    pub(crate) fn new(queue: ProducerQueue) -> Result<Producer<T>, MemError> {
+        if size_of::<T>() > queue.msg_size().get() {
             return Err(MemError::Size);
         }
         Ok(Producer {
-            channel,
+            queue,
             _type: PhantomData,
         })
     }
 
     pub fn msg(&mut self) -> &mut T {
-        let ptr: *mut T = self.channel.current().cast();
+        let ptr: *mut T = self.queue.current().cast();
         unsafe { &mut *ptr }
     }
 
     pub fn force_push(&mut self) -> ProduceForceResult {
-        self.channel.force_push()
+        self.queue.force_push()
     }
 
     pub fn try_push(&mut self) -> ProduceTryResult {
-        self.channel.try_push()
+        self.queue.try_push()
     }
 }
 
 pub struct Consumer<T> {
-    channel: ConsumerChannel,
+    queue: ConsumerQueue,
     _type: PhantomData<T>,
 }
 
 impl<T> Consumer<T> {
-    pub(crate) fn new(channel: ConsumerChannel) -> Result<Consumer<T>, MemError> {
-        if size_of::<T>() > channel.msg_size().get() {
+    pub(crate) fn new(queue: ConsumerQueue) -> Result<Consumer<T>, MemError> {
+        if size_of::<T>() > queue.msg_size().get() {
             return Err(MemError::Size);
         }
         Ok(Consumer {
-            channel,
+            queue,
             _type: PhantomData,
         })
     }
 
     pub fn msg(&self) -> Option<&T> {
-        let ptr: *const T = self.channel.current()?.cast();
+        let ptr: *const T = self.queue.current()?.cast();
         Some(unsafe { &*ptr })
     }
 
     pub fn pop(&mut self) -> ConsumeResult {
-        self.channel.pop()
+        self.queue.pop()
     }
 
     pub fn flush(&mut self) -> ConsumeResult {
-        self.channel.flush()
+        self.queue.flush()
     }
 }
 
 pub struct RtIpc {
     shm: Arc<SharedMemory>,
-    producers: Vec<Option<ProducerChannel>>,
-    consumers: Vec<Option<ConsumerChannel>>,
+    producers: Vec<Option<ProducerQueue>>,
+    consumers: Vec<Option<ConsumerQueue>>,
 }
 
 impl RtIpc {
@@ -171,25 +171,25 @@ impl RtIpc {
         table: ChannelTable,
         init: bool,
     ) -> Result<RtIpc, CreateError> {
-        let mut consumers: Vec<Option<ConsumerChannel>> = Vec::with_capacity(table.consumers.len());
-        let mut producers: Vec<Option<ProducerChannel>> = Vec::with_capacity(table.producers.len());
+        let mut consumers: Vec<Option<ConsumerQueue>> = Vec::with_capacity(table.consumers.len());
+        let mut producers: Vec<Option<ProducerQueue>> = Vec::with_capacity(table.producers.len());
 
         for entry in table.consumers {
             let chunk = shm.alloc(&entry.span)?;
-            let channel = ConsumerChannel::new(chunk, &entry.param)?;
+            let queue = ConsumerQueue::new(chunk, &entry.param)?;
             if init {
-                channel.init();
+                queue.init();
             }
-            consumers.push(Some(channel));
+            consumers.push(Some(queue));
         }
 
         for entry in table.producers {
             let chunk = shm.alloc(&entry.span)?;
-            let channel = ProducerChannel::new(chunk, &entry.param)?;
+            let queue = ProducerQueue::new(chunk, &entry.param)?;
             if init {
-                channel.init();
+                queue.init();
             }
-            producers.push(Some(channel));
+            producers.push(Some(queue));
         }
 
         Ok(RtIpc {
@@ -270,17 +270,17 @@ impl RtIpc {
     }
 
     pub fn take_consumer<T>(&mut self, index: usize) -> Result<Consumer<T>, ChannelError> {
-        let channel_option: &mut Option<ConsumerChannel> =
+        let channel_option: &mut Option<ConsumerQueue> =
             self.consumers.get_mut(index).ok_or(MemError::Index)?;
-        let channel: ConsumerChannel = channel_option.take().ok_or(ChannelError::Index)?;
-        Ok(Consumer::<T>::new(channel)?)
+        let queue: ConsumerQueue = channel_option.take().ok_or(ChannelError::Index)?;
+        Ok(Consumer::<T>::new(queue)?)
     }
 
     pub fn take_producer<T>(&mut self, index: usize) -> Result<Producer<T>, ChannelError> {
-        let channel_option: &mut Option<ProducerChannel> =
+        let channel_option: &mut Option<ProducerQueue> =
             self.producers.get_mut(index).ok_or(MemError::Index)?;
-        let channel: ProducerChannel = channel_option.take().ok_or(ChannelError::Index)?;
-        Ok(Producer::<T>::new(channel)?)
+        let queue: ProducerQueue = channel_option.take().ok_or(ChannelError::Index)?;
+        Ok(Producer::<T>::new(queue)?)
     }
 
     pub fn get_fd(&self) -> &OwnedFd {

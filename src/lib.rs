@@ -1,5 +1,5 @@
 mod cache;
-mod channel;
+mod queue;
 pub mod error;
 mod header;
 mod shm;
@@ -19,13 +19,13 @@ use nix::sys::stat::Mode;
 
 use crate::{
     cache::cacheline_aligned,
-    channel::{ConsumerQueue, ProducerQueue},
+    queue::{ConsumerQueue, ProducerQueue},
     header::Header,
     shm::{Chunk, SharedMemory, Span},
     table::ChannelTable,
 };
 
-pub use channel::{ConsumeResult, ProduceForceResult, ProduceTryResult};
+pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
 pub use error::*;
 
 pub use log;

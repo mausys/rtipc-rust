@@ -7,9 +7,8 @@ use crate::Index;
 const RTIC_MAGIC: u16 = 0x1f0c;
 const RTIC_VERSION: u16 = 1;
 
-#[derive(Copy, Clone)]
 #[repr(C)]
-pub struct Header {
+struct Header {
     magic: u16,
     version: u16,
     /**< cookie for object protocol */
@@ -17,11 +16,16 @@ pub struct Header {
     atomic_size: u16,
 }
 
+const HEADER_SIZE: usize = size_of::<Header>();
 
-pub(crate) fn check_header(buf: &[u8; size_of::<Header>()]) -> Result<(), HeaderError> {
+pub(crate) fn check_header(buf: &[u8]) -> Result<(), HeaderError> {
+    if buf.len() < size_of::<Header>() {
+        return Err(HeaderError::Size);
+    }
+
     let cacheline_size: u16 = max_cacheline_size().try_into().unwrap();
     let atomic_size: u16 = std::mem::size_of::<Index>().try_into().unwrap();
-    let ptr: *const Header = buf.as_ptr() as  *const Header;
+    let ptr: *const Header = buf.as_ptr() as *const Header;
 
     let header = unsafe { ptr.read() };
 
@@ -44,20 +48,22 @@ pub(crate) fn check_header(buf: &[u8; size_of::<Header>()]) -> Result<(), Header
     Ok(())
 }
 
-pub(crate) fn write_header(buf: &mut [u8; size_of::<Header>()]) {
+pub(crate) fn write_header(buf: &mut [u8]) {
+    if buf.len() < size_of::<Header>() {
+        return;
+    }
 
     let cacheline_size: u16 = max_cacheline_size().try_into().unwrap();
     let atomic_size: u16 = std::mem::size_of::<Index>().try_into().unwrap();
 
-    let header =  Header {
+    let header = Header {
         magic: RTIC_MAGIC,
         version: RTIC_VERSION,
         cacheline_size,
         atomic_size,
     };
 
-    let ptr: *mut Header = buf.as_ptr() as  *mut Header;
-
+    let ptr: *mut Header = buf.as_ptr() as *mut Header;
 
     unsafe {
         std::ptr::write(ptr, header);

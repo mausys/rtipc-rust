@@ -41,7 +41,7 @@ pub enum ProduceTryResult {
 }
 
 struct Queue {
-    _chunk: Chunk,
+    chunk: Chunk,
     msg_size: NonZeroUsize,
     head: *mut Index,
     tail: *mut Index,
@@ -83,13 +83,17 @@ impl Queue {
         }
 
         Ok(Queue {
-            _chunk: chunk,
+            chunk,
             msg_size: param.msg_size,
             head,
             tail,
             chain,
             msgs,
         })
+    }
+
+    pub(self) fn shm_offset(&self) -> usize {
+        self.chunk.offset()
     }
 
     fn is_valid_index(&self, idx: Index) -> bool {
@@ -195,6 +199,11 @@ impl ProducerQueue {
 
     pub(crate) fn init(&self) {
         self.queue.init();
+    }
+
+
+    pub(crate) fn shm_offset(&self) -> usize {
+        self.queue.shm_offset()
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
@@ -396,6 +405,10 @@ impl ConsumerQueue {
 
     pub(crate) fn init(&self) {
         self.queue.init();
+    }
+
+    pub(crate) fn shm_offset(&self) -> usize {
+        self.queue.shm_offset()
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {

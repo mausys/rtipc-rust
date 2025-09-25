@@ -5,19 +5,18 @@ use std::{
     mem::size_of,
     num::NonZeroUsize,
     os::fd::OwnedFd,
-    path::{Path, PathBuf},
     ptr::NonNull,
     sync::{Arc, Weak},
 };
 
 use nix::{
     errno::Errno,
-    fcntl::{fcntl, OFlag, SealFlag, F_ADD_SEALS},
+    fcntl::{fcntl, SealFlag, F_ADD_SEALS},
     libc::c_void,
     sys::{
         memfd::{memfd_create, MFdFlags},
-        mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags},
-        stat::{fstat, Mode},
+        mman::{mmap, munmap, MapFlags, ProtFlags},
+        stat::fstat,
     },
     unistd::ftruncate,
 };
@@ -32,8 +31,8 @@ pub(crate) struct Span {
 }
 
 pub(crate) struct Chunk {
-    _shm: Arc<SharedMemory>,
-    ptr: *mut (),
+    shm: Arc<SharedMemory>,
+    offset: usize,
     size: NonZeroUsize,
 }
 
@@ -50,9 +49,13 @@ impl Chunk {
             return Err(MemError::Size);
         }
 
-        let ptr: *mut () = unsafe { self.ptr.byte_add(span.offset) };
+        let ptr: *mut () = unsafe { self.shm.ptr.byte_add(span.offset) };
 
         Ok(ptr)
+    }
+
+     pub(crate) fn offset(&self) -> usize {
+        self.offset
     }
 }
 
@@ -62,7 +65,6 @@ pub struct SharedMemory {
     me: Weak<SharedMemory>,
     ptr: *mut (),
     size: NonZeroUsize,
-    path: Option<PathBuf>,
 }
 
 impl SharedMemory {
@@ -71,11 +73,9 @@ impl SharedMemory {
             return Err(MemError::Size);
         }
 
-        let ptr: *mut () = unsafe { self.ptr.byte_add(span.offset) };
-
         Ok(Chunk {
-            _shm: self.me.upgrade().unwrap(),
-            ptr,
+            shm: self.me.upgrade().unwrap(),
+            offset: span.offset,
             size: span.size,
         })
     }
@@ -89,7 +89,7 @@ impl SharedMemory {
         Ok(())
     }
 
-    fn new(fd: OwnedFd, path: Option<PathBuf>) -> Result<Arc<SharedMemory>, Errno> {
+    fn new(fd: OwnedFd) -> Result<Arc<SharedMemory>, Errno> {
         let stat = fstat(&fd)?;
 
         let size = NonZeroUsize::new(stat.st_size as usize).ok_or(Errno::EBADFD)?;
@@ -109,29 +109,18 @@ impl SharedMemory {
             fd,
             ptr: ptr.as_ptr().cast(),
             size,
-            path,
         }))
     }
 
     pub(crate) fn new_anon(size: NonZeroUsize) -> Result<Arc<SharedMemory>, Errno> {
         let fd: OwnedFd = memfd_create("test", MFdFlags::MFD_ALLOW_SEALING)?;
         SharedMemory::init(&fd, size)?;
-        SharedMemory::new(fd, None)
+        SharedMemory::new(fd)
     }
 
-    pub(crate) fn new_named(
-        size: NonZeroUsize,
-        path: &Path,
-        mode: Mode,
-    ) -> Result<Arc<SharedMemory>, Errno> {
-        let fd: OwnedFd = shm_open(path, OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR, mode)?;
-        let path_buf: PathBuf = PathBuf::from(path);
-        SharedMemory::init(&fd, size)?;
-        SharedMemory::new(fd, Some(path_buf))
-    }
 
     pub(crate) fn from_fd(fd: OwnedFd) -> Result<Arc<SharedMemory>, Errno> {
-        SharedMemory::new(fd, None)
+        SharedMemory::new(fd)
     }
 
     pub(crate) fn get_fd(&self) -> &OwnedFd {
@@ -145,28 +134,11 @@ impl Drop for SharedMemory {
         if let Err(_e) = unsafe { munmap(ptr, self.size.get()) } {
             error!("munmap failed with : {_e}");
         }
-        let path = &self.path;
-        if let Some(path) = path {
-            if let Err(_e) = shm_unlink(path) {
-                error!("munmap failed with : {_e}");
-            }
-        };
     }
 }
 
 impl fmt::Display for SharedMemory {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let path = &self.path;
-        if let Some(path) = path {
-            write!(
-                f,
-                "ptr: {:p}, size: {} path: {}",
-                self.ptr,
-                self.size,
-                path.display()
-            )
-        } else {
-            write!(f, "ptr: {:p}, size: {}", self.ptr, self.size)
-        }
+        write!(f, "ptr: {:p}, size: {}", self.ptr, self.size)
     }
 }

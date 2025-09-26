@@ -36,7 +36,6 @@ impl Span {
     }
 }
 
-
 pub(crate) struct Chunk {
     shm: Arc<SharedMemory>,
     offset: usize,
@@ -61,7 +60,7 @@ impl Chunk {
         Ok(ptr)
     }
 
-     pub(crate) fn offset(&self) -> usize {
+    pub(crate) fn offset(&self) -> usize {
         self.offset
     }
 }
@@ -75,15 +74,15 @@ pub struct SharedMemory {
 }
 
 impl SharedMemory {
-    pub fn alloc(&self, span: &Span) -> Result<Chunk, MemError> {
-        if span.offset + span.size.get() > self.size.get() {
+    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, MemError> {
+        if offset + size.get() > self.size.get() {
             return Err(MemError::Size);
         }
 
         Ok(Chunk {
             shm: self.me.upgrade().unwrap(),
-            offset: span.offset,
-            size: span.size,
+            offset,
+            size,
         })
     }
 
@@ -96,7 +95,7 @@ impl SharedMemory {
         Ok(())
     }
 
-    fn new(fd: OwnedFd) -> Result<Arc<Self>, Errno> {
+    fn create(fd: OwnedFd) -> Result<Arc<Self>, Errno> {
         let stat = fstat(&fd)?;
 
         let size = NonZeroUsize::new(stat.st_size as usize).ok_or(Errno::EBADFD)?;
@@ -119,15 +118,14 @@ impl SharedMemory {
         }))
     }
 
-    pub(crate) fn new_anon(size: NonZeroUsize) -> Result<Arc<Self>, Errno> {
+    pub(crate) fn new(size: NonZeroUsize) -> Result<Arc<Self>, Errno> {
         let fd: OwnedFd = memfd_create("test", MFdFlags::MFD_ALLOW_SEALING)?;
         Self::init(&fd, size)?;
-        Self::new(fd)
+        Self::create(fd)
     }
 
-
     pub(crate) fn from_fd(fd: OwnedFd) -> Result<Arc<Self>, Errno> {
-        Self::new(fd)
+        Self::create(fd)
     }
 
     pub(crate) fn get_fd(&self) -> &OwnedFd {

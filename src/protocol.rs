@@ -11,13 +11,24 @@ use crate::{
 };
 
 #[repr(C)]
-
 struct ChannelEntry {
     add_msgs: u32,
     msg_size: u32,
     shm_offset: u32,
     eventfd: i32,
     info_size: u32,
+}
+
+impl ChannelEntry {
+    fn from_param(param: &ChannelParam, shm_offset: usize) -> Self {
+        Self {
+            add_msgs: param.add_msgs as u32,
+            msg_size: param.msg_size.get() as u32,
+            shm_offset: shm_offset as u32,
+            eventfd: param.eventfd as i32,
+            info_size: param.info.len() as u32,
+        }
+    }
 }
 
 struct ChannelTable<'a> {
@@ -57,6 +68,61 @@ impl ChannelEntry {
             info,
             eventfd: self.eventfd != 0,
         })
+    }
+}
+
+struct Layout {
+    vector_info_offset: usize,
+    num_channels: [usize; 2],
+    channels: [usize; 2],
+    vector_info: usize,
+    channel_infos: usize,
+    size: usize,
+}
+
+impl Layout {
+    pub(self) fn calc(
+        producers: &Vec<ChannelParam>,
+        consumers: &Vec<ChannelParam>,
+        info: &Vec<u8>,
+    ) -> Self {
+        let mut offset = HEADER_SIZE;
+
+        offset = mem_align(offset, align_of::<u32>());
+        let vector_info_offset = offset;
+        offset += size_of::<u32>();
+
+        let num_channels: [usize; 2] = [offset, offset + size_of::<u32>()];
+        offset += 2 * size_of::<u32>();
+
+        offset = mem_align(offset, align_of::<ChannelEntry>());
+
+        let channels: [usize; 2] = [offset, consumers.len() * size_of::<ChannelEntry>()];
+        offset += (producers.len() + consumers.len()) * size_of::<ChannelEntry>();
+
+        let vector_info = offset;
+        offset += info.len();
+
+        let channel_infos = offset;
+
+        for param in producers {
+            offset += param.info.len();
+        }
+
+        for param in consumers {
+            offset += param.info.len();
+        }
+
+        let size = offset;
+
+        Self {
+            vector_info_offset,
+            num_channels,
+            channels,
+            vector_info,
+            channel_infos,
+            size,
+        }
     }
 }
 
@@ -181,83 +247,20 @@ impl<'a> ChannelTable<'a> {
         Ok((consumers, producers, info))
     }
 }
-pub fn msg_to_params(
+
+pub fn parse_request_message(
     msg: &[u8],
 ) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), CreateError> {
     let table = ChannelTable::from_msg(msg)?;
     table.to_vector()
 }
 
-struct Layout {
-    vector_info_offset: usize,
-    num_channels: [usize; 2],
-    channels: [usize; 2],
-    vector_info: usize,
-    channel_infos: usize,
-    size: usize,
-}
-
-impl Layout {
-    pub(self) fn calc(
-        consumers: &Vec<ChannelParam>,
-        producers: &Vec<ChannelParam>,
-        info: &Vec<u8>,
-    ) -> Self {
-        let mut offset = HEADER_SIZE;
-
-        offset = mem_align(offset, align_of::<u32>());
-        let vector_info_offset = offset;
-        offset += size_of::<u32>();
-
-        let num_channels: [usize; 2] = [offset, offset + size_of::<u32>()];
-        offset += 2 * size_of::<u32>();
-
-        offset = mem_align(offset, align_of::<ChannelEntry>());
-
-        let channels: [usize; 2] = [offset, consumers.len() * size_of::<ChannelEntry>()];
-        offset += (consumers.len() + producers.len()) * size_of::<ChannelEntry>();
-
-        let vector_info = offset;
-        offset += info.len();
-
-        let channel_infos = offset;
-
-        for param in consumers {
-            offset += param.info.len();
-        }
-        for param in producers {
-            offset += param.info.len();
-        }
-
-        let size = offset;
-
-        Self {
-            vector_info_offset,
-            num_channels,
-            channels,
-            vector_info,
-            channel_infos,
-            size,
-        }
-    }
-}
-
-fn param_to_entry(param: &ChannelParam, shm_offset: usize) -> ChannelEntry {
-    ChannelEntry {
-        add_msgs: param.add_msgs as u32,
-        msg_size: param.msg_size.get() as u32,
-        shm_offset: shm_offset as u32,
-        eventfd: param.eventfd as i32,
-        info_size: param.info.len() as u32,
-    }
-}
-
-pub(crate) fn vector_to_msg(
-    consumers: &Vec<ChannelParam>,
+pub(crate) fn create_request_message(
     producers: &Vec<ChannelParam>,
+    consumers: &Vec<ChannelParam>,
     info: &Vec<u8>,
 ) -> Vec<u8> {
-    let layout = Layout::calc(consumers, producers, info);
+    let layout = Layout::calc(producers, consumers, info);
 
     let mut msg: Vec<u8> = vec![0; layout.size];
 
@@ -272,39 +275,34 @@ pub(crate) fn vector_to_msg(
 
     msg_write(
         msg.as_mut_slice(),
-        layout.num_channels[0],
-        &(consumers.len() as u32),
-    )
-    .unwrap();
-
-    msg_write(
-        msg.as_mut_slice(),
         layout.num_channels[1],
         &(producers.len() as u32),
     )
     .unwrap();
 
-    let consumers_ptr =
-        msg_get_mut_ptr::<ChannelEntry>(msg.as_mut_slice(), layout.channels[0]).unwrap();
+    msg_write(
+        msg.as_mut_slice(),
+        layout.num_channels[0],
+        &(consumers.len() as u32),
+    )
+    .unwrap();
+
     let producers_ptr =
+        msg_get_mut_ptr::<ChannelEntry>(msg.as_mut_slice(), layout.channels[0]).unwrap();
+
+    let consumers_ptr =
         msg_get_mut_ptr::<ChannelEntry>(msg.as_mut_slice(), layout.channels[1]).unwrap();
 
-    let consumer_entries = unsafe { from_raw_parts_mut(consumers_ptr, consumers.len()) };
     let producer_entries = unsafe { from_raw_parts_mut(producers_ptr, producers.len()) };
+    let consumer_entries = unsafe { from_raw_parts_mut(consumers_ptr, consumers.len()) };
 
     msg[layout.channel_infos..layout.channel_infos + info.len()].clone_from_slice(info);
 
     let mut shm_offset: usize = 0;
     let mut info_offset = layout.channel_infos;
 
-    for (index, param) in consumers.iter().enumerate() {
-        consumer_entries[index] = ChannelEntry {
-            add_msgs: param.add_msgs as u32,
-            msg_size: param.msg_size.get() as u32,
-            shm_offset: shm_offset as u32,
-            eventfd: param.eventfd as i32,
-            info_size: param.info.len() as u32,
-        };
+    for (index, param) in producers.iter().enumerate() {
+        producer_entries[index] = ChannelEntry::from_param(param, shm_offset);
 
         shm_offset += param.shm_size().get();
 
@@ -315,14 +313,8 @@ pub(crate) fn vector_to_msg(
         }
     }
 
-    for (index, param) in producers.iter().enumerate() {
-        producer_entries[index] = ChannelEntry {
-            add_msgs: param.add_msgs as u32,
-            msg_size: param.msg_size.get() as u32,
-            shm_offset: shm_offset as u32,
-            eventfd: param.eventfd as i32,
-            info_size: param.info.len() as u32,
-        };
+    for (index, param) in consumers.iter().enumerate() {
+        consumer_entries[index] = ChannelEntry::from_param(param, shm_offset);
 
         shm_offset += param.shm_size().get();
 

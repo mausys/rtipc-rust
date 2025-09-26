@@ -176,7 +176,11 @@ pub struct ProducerQueue {
 }
 
 impl ProducerQueue {
-    pub(crate) fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, MemError> {
+    pub(crate) fn new(
+        chunk: Chunk,
+        add_msgs: usize,
+        msg_size: NonZeroUsize,
+    ) -> Result<Self, MemError> {
         let queue = Queue::new(chunk, add_msgs, msg_size)?;
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
@@ -199,7 +203,6 @@ impl ProducerQueue {
     pub(crate) fn init(&self) {
         self.queue.init();
     }
-
 
     pub(crate) fn shm_offset(&self) -> usize {
         self.queue.shm_offset()
@@ -394,12 +397,13 @@ pub struct ConsumerQueue {
 }
 
 impl ConsumerQueue {
-    pub(crate) fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, MemError> {
+    pub(crate) fn new(
+        chunk: Chunk,
+        add_msgs: usize,
+        msg_size: NonZeroUsize,
+    ) -> Result<Self, MemError> {
         let queue = Queue::new(chunk, add_msgs, msg_size)?;
-        Ok(Self {
-            queue,
-            current: 0,
-        })
+        Ok(Self { queue, current: 0 })
     }
 
     pub(crate) fn init(&self) {
@@ -479,10 +483,7 @@ impl ConsumerQueue {
             return ConsumeResult::Error;
         }
 
-        if self
-            .queue
-            .tail_compare_exchange(tail, next | CONSUMED_FLAG)
-        {
+        if self.queue.tail_compare_exchange(tail, next | CONSUMED_FLAG) {
             self.current = next;
             ConsumeResult::Success
         } else {

@@ -14,13 +14,17 @@ pub struct ProducerChannel {
 }
 
 impl ProducerChannel {
-    pub(crate) fn new(param: ChannelParam, chunk: Chunk) -> Result<Self, MemError> {
+    pub(crate) fn new(
+        param: &ChannelParam,
+        chunk: Chunk,
+        eventfd: Option<OwnedFd>,
+    ) -> Result<Self, MemError> {
         let queue = ProducerQueue::new(chunk, param.add_msgs, param.msg_size)?;
 
         Ok(Self {
             queue,
-            info: param.info,
-            eventfd: None,
+            info: param.info.clone(),
+            eventfd,
         })
     }
 
@@ -36,13 +40,17 @@ pub struct ConsumerChannel {
 }
 
 impl ConsumerChannel {
-    pub(crate) fn new(param: ChannelParam, chunk: Chunk) -> Result<Self, MemError> {
+    pub(crate) fn new(
+        param: &ChannelParam,
+        chunk: Chunk,
+        eventfd: Option<OwnedFd>,
+    ) -> Result<Self, MemError> {
         let queue = ConsumerQueue::new(chunk, param.add_msgs, param.msg_size)?;
 
         Ok(Self {
             queue,
             info: param.info.clone(),
-            eventfd: None,
+            eventfd,
         })
     }
 

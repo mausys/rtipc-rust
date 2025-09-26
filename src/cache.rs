@@ -2,6 +2,8 @@ use cache_size::{cache_line_size, CacheType};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::mem_align;
+
 pub(crate) fn max_cacheline_size() -> usize {
     static CLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -29,10 +31,6 @@ pub(crate) fn max_cacheline_size() -> usize {
 
     CLS.store(cls, Ordering::Relaxed);
     cls
-}
-
-fn mem_align(size: usize, alignment: usize) -> usize {
-    (size + alignment - 1) & !(alignment - 1)
 }
 
 pub(crate) fn cacheline_aligned(size: usize) -> usize {

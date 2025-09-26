@@ -1,4 +1,5 @@
 use std::io::{IoSlice, IoSliceMut};
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::io::RawFd;
 
 use nix::errno::Errno;
@@ -15,6 +16,9 @@ pub(crate) struct Request {
 }
 
 impl Request {
+    pub(crate) fn new(msg: Vec<u8>, fds: Vec<RawFd>) -> Self {
+        Self { msg, fds }
+    }
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
         let iov = [IoSlice::new(b"hello")];
 
@@ -59,14 +63,14 @@ impl Request {
         &self.msg
     }
 
-    pub(crate) fn take_fd(&mut self, index: usize) -> Option<RawFd> {
+    pub(crate) fn take_fd(&mut self, index: usize) -> Option<OwnedFd> {
         if let Some(fd) = self.fds.get_mut(index) {
             if *fd < 0 {
                 None
             } else {
-                let result = Some(*fd);
+                let owned_fd = unsafe { OwnedFd::from_raw_fd(*fd) };
                 *fd = -1;
-                result
+                Some(owned_fd)
             }
         } else {
             None

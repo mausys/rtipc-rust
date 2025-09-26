@@ -11,12 +11,11 @@ const RTIC_VERSION: u16 = 1;
 struct Header {
     magic: u16,
     version: u16,
-    /**< cookie for object protocol */
     cacheline_size: u16,
     atomic_size: u16,
 }
 
-const HEADER_SIZE: usize = size_of::<Header>();
+pub const HEADER_SIZE: usize = size_of::<Header>();
 
 pub(crate) fn check_header(buf: &[u8]) -> Result<(), HeaderError> {
     if buf.len() < size_of::<Header>() {

@@ -6,7 +6,6 @@ use crate::error::*;
 use crate::shm::{Chunk, Span};
 
 use crate::AtomicIndex;
-use crate::ChannelParam;
 use crate::Index;
 use crate::MIN_MSGS;
 
@@ -50,11 +49,11 @@ struct Queue {
 }
 
 impl Queue {
-    pub fn new(chunk: Chunk, param: &ChannelParam) -> Result<Queue, MemError> {
-        let queue_len = param.add_msgs + MIN_MSGS;
+    pub fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, MemError> {
+        let queue_len = add_msgs + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
-        let msg_size = NonZeroUsize::new(cacheline_aligned(param.msg_size.get())).unwrap();
+        let msg_size = NonZeroUsize::new(cacheline_aligned(msg_size.get())).unwrap();
 
         let mut offset_index = 0;
         let mut offset_msg = cacheline_aligned(queue_size);
@@ -82,9 +81,9 @@ impl Queue {
             offset_msg += msg_size.get();
         }
 
-        Ok(Queue {
+        Ok(Self {
             chunk,
-            msg_size: param.msg_size,
+            msg_size,
             head,
             tail,
             chain,
@@ -177,8 +176,8 @@ pub struct ProducerQueue {
 }
 
 impl ProducerQueue {
-    pub(crate) fn new(chunk: Chunk, param: &ChannelParam) -> Result<ProducerQueue, MemError> {
-        let queue = Queue::new(chunk, param)?;
+    pub(crate) fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, MemError> {
+        let queue = Queue::new(chunk, add_msgs, msg_size)?;
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
         for i in 0..queue_len - 1 {
@@ -188,7 +187,7 @@ impl ProducerQueue {
 
         chain.push(0);
 
-        Ok(ProducerQueue {
+        Ok(Self {
             queue,
             head: INVALID_INDEX,
             chain,
@@ -395,9 +394,9 @@ pub struct ConsumerQueue {
 }
 
 impl ConsumerQueue {
-    pub(crate) fn new(chunk: Chunk, param: &ChannelParam) -> Result<ConsumerQueue, MemError> {
-        let queue = Queue::new(chunk, param)?;
-        Ok(ConsumerQueue {
+    pub(crate) fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, MemError> {
+        let queue = Queue::new(chunk, add_msgs, msg_size)?;
+        Ok(Self {
             queue,
             current: 0,
         })

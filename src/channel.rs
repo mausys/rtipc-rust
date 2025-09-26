@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, mem::size_of, os::fd::OwnedFd};
+use std::{marker::PhantomData, mem::size_of, num::NonZeroUsize, os::fd::OwnedFd};
 
 use crate::{
     error::*,
@@ -7,25 +7,67 @@ use crate::{
     ChannelParam,
 };
 
+pub struct ProducerChannel {
+    queue: ProducerQueue,
+    info: Vec<u8>,
+    eventfd: Option<OwnedFd>,
+}
+
+impl ProducerChannel {
+    pub(crate) fn new(param: ChannelParam, chunk: Chunk) -> Result<Self, MemError> {
+        let queue = ProducerQueue::new(chunk, param.add_msgs, param.msg_size)?;
+
+        Ok(Self {
+            queue,
+            info: param.info,
+            eventfd: None,
+        })
+    }
+
+    pub(crate) fn msg_size(&self) -> NonZeroUsize {
+        self.queue.msg_size()
+    }
+}
+
+pub struct ConsumerChannel {
+    queue: ConsumerQueue,
+    info: Vec<u8>,
+    eventfd: Option<OwnedFd>,
+}
+
+impl ConsumerChannel {
+    pub(crate) fn new(param: ChannelParam, chunk: Chunk) -> Result<Self, MemError> {
+        let queue = ConsumerQueue::new(chunk, param.add_msgs, param.msg_size)?;
+
+        Ok(Self {
+            queue,
+            info: param.info.clone(),
+            eventfd: None,
+        })
+    }
+
+    pub(crate) fn msg_size(&self) -> NonZeroUsize {
+        self.queue.msg_size()
+    }
+}
+
 pub struct Producer<T> {
     queue: ProducerQueue,
-    info: Option<Vec<u8>>,
+    info: Vec<u8>,
     eventfd: Option<OwnedFd>,
     _type: PhantomData<T>,
 }
 
 impl<T> Producer<T> {
-    pub(crate) fn new(param: ChannelParam, chunk: Chunk) -> Result<Producer<T>, MemError> {
-        if size_of::<T>() > param.msg_size.get() {
+    pub(crate) fn try_from(channel: ProducerChannel) -> Result<Self, MemError> {
+        if size_of::<T>() > channel.msg_size().get() {
             return Err(MemError::Size);
         }
 
-        let queue = ProducerQueue::new(chunk, param.add_msgs, param.msg_size)?;
-
-        Ok(Producer {
-            queue,
-            info: param.info,
-            eventfd: None,
+        Ok(Self {
+            queue: channel.queue,
+            info: channel.info,
+            eventfd: channel.eventfd,
             _type: PhantomData,
         })
     }
@@ -46,23 +88,21 @@ impl<T> Producer<T> {
 
 pub struct Consumer<T> {
     queue: ConsumerQueue,
-    info: Option<Vec<u8>>,
+    info: Vec<u8>,
     eventfd: Option<OwnedFd>,
     _type: PhantomData<T>,
 }
 
 impl<T> Consumer<T> {
-    pub(crate) fn new(param: ChannelParam, chunk: Chunk) -> Result<Consumer<T>, MemError> {
-        if size_of::<T>() > param.msg_size.get() {
+    pub(crate) fn try_from(channel: ConsumerChannel) -> Result<Self, MemError> {
+        if size_of::<T>() > channel.msg_size().get() {
             return Err(MemError::Size);
         }
 
-        let queue = ConsumerQueue::new(chunk, param.add_msgs, param.msg_size)?;
-
-        Ok(Consumer {
-            queue,
-            info: param.info,
-            eventfd: None,
+        Ok(Self {
+            queue: channel.queue,
+            info: channel.info,
+            eventfd: channel.eventfd,
             _type: PhantomData,
         })
     }

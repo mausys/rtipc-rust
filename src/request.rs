@@ -1,13 +1,10 @@
 use std::io::{IoSlice, IoSliceMut};
 use std::os::unix::io::RawFd;
 
-use nix::Result;
 use nix::errno::Errno;
+use nix::sys::socket::{recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
 use nix::unistd::close;
-use nix::sys::socket::{
-    recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags
-};
-
+use nix::Result;
 
 //from kernel header file net/scm.h: SCM_MAX_FD
 const MAX_FD: usize = 253;
@@ -55,7 +52,11 @@ impl Request {
             _ => return Err(Errno::EPROTO),
         };
 
-        Ok(Request { msg, fds })
+        Ok(Self { msg, fds })
+    }
+
+    pub(crate) fn msg(&self) -> &Vec<u8> {
+        &self.msg
     }
 
     pub(crate) fn take_fd(&mut self, index: usize) -> Option<RawFd> {
@@ -83,10 +84,10 @@ impl Request {
 
 impl Drop for Request {
     fn drop(&mut self) {
-       for fd in &self.fds {
-        if *fd > 0 {
-            let _ = close(*fd);
+        for fd in &self.fds {
+            if *fd > 0 {
+                let _ = close(*fd);
+            }
         }
-       }
     }
 }

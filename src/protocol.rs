@@ -14,18 +14,16 @@ use crate::{
 struct ChannelEntry {
     add_msgs: u32,
     msg_size: u32,
-    shm_offset: u32,
-    eventfd: i32,
+    eventfd: u32,
     info_size: u32,
 }
 
 impl ChannelEntry {
-    fn from_param(param: &ChannelParam, shm_offset: usize) -> Self {
+    fn from_param(param: &ChannelParam) -> Self {
         Self {
             add_msgs: param.add_msgs as u32,
             msg_size: param.msg_size.get() as u32,
-            shm_offset: shm_offset as u32,
-            eventfd: param.eventfd as i32,
+            eventfd: param.eventfd as u32,
             info_size: param.info.len() as u32,
         }
     }
@@ -222,7 +220,7 @@ impl<'a> ChannelTable<'a> {
         })
     }
 
-    pub(crate) fn to_vector(
+    fn to_params(
         &self,
     ) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), CreateError> {
         let mut consumers: Vec<ChannelParam> = Vec::with_capacity(self.consumers.len());
@@ -252,7 +250,7 @@ pub fn parse_request_message(
     msg: &[u8],
 ) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), CreateError> {
     let table = ChannelTable::from_msg(msg)?;
-    table.to_vector()
+    table.to_params()
 }
 
 pub(crate) fn create_request_message(
@@ -296,15 +294,12 @@ pub(crate) fn create_request_message(
     let producer_entries = unsafe { from_raw_parts_mut(producers_ptr, producers.len()) };
     let consumer_entries = unsafe { from_raw_parts_mut(consumers_ptr, consumers.len()) };
 
-    msg[layout.channel_infos..layout.channel_infos + info.len()].clone_from_slice(info);
+    msg[layout.vector_info..layout.vector_info + info.len()].clone_from_slice(info);
 
-    let mut shm_offset: usize = 0;
     let mut info_offset = layout.channel_infos;
 
     for (index, param) in producers.iter().enumerate() {
-        producer_entries[index] = ChannelEntry::from_param(param, shm_offset);
-
-        shm_offset += param.shm_size().get();
+        producer_entries[index] = ChannelEntry::from_param(param);
 
         if param.info.len() > 0 {
             msg[info_offset..info_offset + param.info.len()]
@@ -314,9 +309,7 @@ pub(crate) fn create_request_message(
     }
 
     for (index, param) in consumers.iter().enumerate() {
-        consumer_entries[index] = ChannelEntry::from_param(param, shm_offset);
-
-        shm_offset += param.shm_size().get();
+        consumer_entries[index] = ChannelEntry::from_param(param);
 
         if param.info.len() > 0 {
             msg[info_offset..info_offset + param.info.len()]

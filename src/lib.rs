@@ -30,6 +30,8 @@ use crate::{
 
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
+pub use channel::{Producer, Consumer};
+pub use vector::ChannelVector;
 
 pub use log;
 

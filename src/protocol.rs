@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     error::*,
-    header::{check_header, write_header, HEADER_SIZE},
+    header::{verify_header, write_header, HEADER_SIZE},
     mem_align, ChannelParam,
 };
 
@@ -42,15 +42,15 @@ impl ChannelEntry {
         &self,
         msg: &[u8],
         info_offset: usize,
-    ) -> Result<ChannelParam, RtipcError> {
+    ) -> Result<ChannelParam, RtIpcError> {
         let info_size = self.info_size as usize;
 
         if info_offset + info_size > msg.len() {
-            return Err(RtipcError::Message(MessageError::Size));
+            return Err(RtIpcError::Message(MessageError::Size));
         }
 
         if self.msg_size == 0 {
-            return Err(RtipcError::Message(MessageError::Size));
+            return Err(RtIpcError::Message(MessageError::Size));
         }
 
         let msg_size = NonZeroUsize::new(self.msg_size as usize).unwrap();
@@ -177,10 +177,10 @@ fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), ShmError
 }
 
 impl<'a> ChannelTable<'a> {
-    pub(crate) fn from_msg(msg: &'a [u8]) -> Result<Self, RtipcError> {
-        let header = msg.get(0..HEADER_SIZE).ok_or(RtipcError::Message(MessageError::Size))?;
+    pub(crate) fn from_msg(msg: &'a [u8]) -> Result<Self, RtIpcError> {
+        let header = msg.get(0..HEADER_SIZE).ok_or(RtIpcError::Message(MessageError::Size))?;
 
-        check_header(header)?;
+        verify_header(header)?;
 
         let mut offset: usize = HEADER_SIZE;
         offset = mem_align(offset, align_of::<u32>());
@@ -205,7 +205,7 @@ impl<'a> ChannelTable<'a> {
         let vector_info_offset = offset;
 
         if vector_info_offset + vector_info_size > msg.len() {
-            return Err(RtipcError::Message(MessageError::Size));
+            return Err(RtIpcError::Message(MessageError::Size));
         }
 
         let consumers = unsafe { from_raw_parts(consumers_ptr, num_consumers) };
@@ -222,7 +222,7 @@ impl<'a> ChannelTable<'a> {
 
     fn to_params(
         &self,
-    ) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), RtipcError> {
+    ) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), RtIpcError> {
         let mut consumers: Vec<ChannelParam> = Vec::with_capacity(self.consumers.len());
         let mut producers: Vec<ChannelParam> = Vec::with_capacity(self.producers.len());
 
@@ -248,7 +248,7 @@ impl<'a> ChannelTable<'a> {
 
 pub(crate) fn parse_request_message(
     msg: &[u8],
-) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), RtipcError> {
+) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), RtIpcError> {
     let table = ChannelTable::from_msg(msg)?;
     table.to_params()
 }

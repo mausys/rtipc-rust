@@ -17,7 +17,7 @@ struct Header {
 
 pub const HEADER_SIZE: usize = size_of::<Header>();
 
-pub(crate) fn check_header(buf: &[u8]) -> Result<(), MessageError> {
+pub(crate) fn verify_header(buf: &[u8]) -> Result<(), MessageError> {
     if buf.len() < size_of::<Header>() {
         return Err(MessageError::Size);
     }

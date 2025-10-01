@@ -1,6 +1,10 @@
-use std::{marker::PhantomData, mem::size_of, num::NonZeroUsize, os::fd::OwnedFd};
+use std::{
+    marker::PhantomData,
+    mem::size_of,
+    num::NonZeroUsize,
+    os::fd::{OwnedFd, RawFd, AsRawFd, AsFd},
+    };
 
-use  std::os::unix::io::RawFd;
 
 use crate::{
     calc_shm_size,
@@ -151,28 +155,28 @@ pub struct ChannelVector {
 }
 
 impl ChannelVector {
-    pub fn connect(
-        socket: RawFd,
+    pub(crate) fn new(
         producer_params: &Vec<ChannelParam>,
         consumer_params: &Vec<ChannelParam>,
         info: Vec<u8>,
-    ) -> Result<Self, RtipcError> {
+    ) -> Result<(Self, Vec<RawFd>), RtIpcError> {
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(producer_params.len());
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(consumer_params.len());
+        let mut fds = Vec::<RawFd>::new();
 
         let shm_size = NonZeroUsize::new(calc_shm_size(producer_params, consumer_params))
-            .ok_or(RtipcError::Argument)?;
-
-        let msg = create_request_message(producer_params, consumer_params, &info);
+            .ok_or(RtIpcError::Argument)?;
 
         let shm = SharedMemory::new(shm_size)?;
-        let fds = Vec::<RawFd>::with_capacity(10);
+        fds.push(shm.as_raw_fd());
 
         let mut shm_offset = 0;
 
         for param in producer_params {
             let eventfd = if param.eventfd {
-                Some(OwnedFd::from(eventfd()?))
+                let efd = eventfd()?;
+                fds.push(efd.as_raw_fd());
+                Some(efd)
             } else {
                 None
             };
@@ -189,7 +193,9 @@ impl ChannelVector {
 
         for param in consumer_params {
             let eventfd = if param.eventfd {
-                Some(OwnedFd::from(eventfd()?))
+                let efd = eventfd()?;
+                fds.push(efd.as_raw_fd());
+                Some(efd)
             } else {
                 None
             };
@@ -203,20 +209,18 @@ impl ChannelVector {
             shm_offset += shm_size.get();
         }
 
-        Request::new(msg, fds).send(socket)?;
-
-        Ok(Self {
+        Ok((Self {
             producers,
             consumers,
             info,
-        })
+        }, fds))
     }
 
-    pub fn accept(socket: RawFd) -> Result<Self, RtipcError> {
-        let mut req = Request::receive(socket)?;
+    pub(crate) fn from_request(mut req: Request) -> Result<Self, RtIpcError> {
+
         let (producer_params, consumer_params, info) = parse_request_message(req.msg())?;
 
-        let shm_fd = req.take_fd(0).ok_or(RtipcError::Argument)?;
+        let shm_fd = req.take_fd(0).ok_or(RtIpcError::Argument)?;
 
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(consumer_params.len());
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(producer_params.len());
@@ -229,9 +233,9 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd == true {
-                let fd = req.take_fd(fd_index).ok_or(RtipcError::Message(MessageError::Size))?;
+                let fd = req.take_fd(fd_index).ok_or(RtIpcError::Message(MessageError::Size))?;
 
-                check_eventfd(fd)?;
+                check_eventfd(fd.as_raw_fd())?;
 
                 fd_index = fd_index + 1;
                 Some(fd)
@@ -252,9 +256,9 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd == true {
-                let fd = req.take_fd(fd_index).ok_or(RtipcError::Message(MessageError::Size))?;
+                let fd = req.take_fd(fd_index).ok_or(RtIpcError::Message(MessageError::Size))?;
 
-                check_eventfd(fd)?;
+                check_eventfd(fd.as_raw_fd())?;
 
                 fd_index = fd_index + 1;
                 Some(fd)
@@ -276,6 +280,7 @@ impl ChannelVector {
             info,
         })
     }
+
 
     pub fn take_consumer<T>(&mut self, index: usize) -> Option<Consumer<T>> {
         let channel = self.consumers.get_mut(index)?.take()?;

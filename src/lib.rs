@@ -8,6 +8,7 @@ mod request;
 mod shm;
 mod vector;
 mod fd;
+mod socket;
 
 #[macro_use]
 extern crate nix;
@@ -15,6 +16,7 @@ extern crate nix;
 use std::{
     num::NonZeroUsize,
     sync::atomic::AtomicU32,
+    os::fd::OwnedFd,
 };
 
 use crate::cache::cacheline_aligned;
@@ -57,6 +59,10 @@ impl ChannelParam {
     }
 }
 
+
+pub struct Server {
+    socket: OwnedFd,
+}
 
 pub(crate) fn calc_shm_size(group0: &[ChannelParam], group1: &[ChannelParam]) -> usize {
     let mut size = 0;

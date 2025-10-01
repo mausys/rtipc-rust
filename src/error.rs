@@ -19,7 +19,7 @@ pub enum MessageError {
 
 
 #[derive(Debug)]
-pub enum RtipcError {
+pub enum RtIpcError {
     Errno(Errno),
     Shm(ShmError),
     Message(MessageError),
@@ -34,22 +34,22 @@ impl From<ShmError> for MessageError {
     }
 }
 
-impl From<ShmError> for RtipcError {
-    fn from(e: ShmError) -> RtipcError {
-        RtipcError::Shm(e)
+impl From<ShmError> for RtIpcError {
+    fn from(e: ShmError) -> RtIpcError {
+        RtIpcError::Shm(e)
     }
 }
 
-impl From<Errno> for RtipcError {
-    fn from(errno: Errno) -> RtipcError {
-        RtipcError::Errno(errno)
+impl From<Errno> for RtIpcError {
+    fn from(errno: Errno) -> RtIpcError {
+        RtIpcError::Errno(errno)
     }
 }
 
 
 
-impl From<MessageError> for RtipcError {
-    fn from(field: MessageError) -> RtipcError {
-        RtipcError::Message(field)
+impl From<MessageError> for RtIpcError {
+    fn from(field: MessageError) -> RtIpcError {
+        RtIpcError::Message(field)
     }
 }

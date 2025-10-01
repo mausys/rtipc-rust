@@ -1,5 +1,5 @@
 use nix::sys::socket::{
-    accept, bind, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
+    socket, accept, bind, listen, connect, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
 };
 use nix::NixPath;
 use std::os::fd::{OwnedFd, RawFd};
@@ -10,7 +10,7 @@ use crate::request::Request;
 use crate::{ChannelParam, VectorParam};
 use crate::ChannelVector;
 
-struct Server {
+pub struct Server {
     sockfd: OwnedFd,
     addr: UnixAddr,
 }
@@ -47,3 +47,28 @@ pub fn client_connect_fd(
 
     Ok(vec)
 }
+
+pub fn client_connect<P: ?Sized + NixPath>(
+    path: &P,
+    vparam: VectorParam
+) -> Result<ChannelVector, RtIpcError> {
+
+    let sockfd = socket(
+        AddressFamily::Unix,
+        SockType::SeqPacket,
+        SockFlag::empty(),
+        None,
+    )?;
+
+    let addr = UnixAddr::new(path)?;
+
+    connect(sockfd.as_raw_fd(), &addr)?;
+
+    let (vec, req) = ChannelVector::new(&vparam)?;
+
+    req.send(sockfd.as_raw_fd())?;
+
+    Ok(vec)
+}
+
+

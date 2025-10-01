@@ -19,6 +19,8 @@ use crate::cache::cacheline_aligned;
 pub use channel::{ChannelVector, Consumer, Producer};
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
+pub use socket::{Server, client_connect, client_connect_fd};
+
 
 pub use log;
 
@@ -30,11 +32,12 @@ pub(crate) fn mem_align(size: usize, alignment: usize) -> usize {
     (size + alignment - 1) & !(alignment - 1)
 }
 
+#[derive(Clone)]
 pub struct ChannelParam {
     pub add_msgs: usize,
     pub msg_size: NonZeroUsize,
-    info: Vec<u8>,
-    eventfd: bool,
+    pub eventfd: bool,
+    pub info: Vec<u8>,
 }
 
 impl ChannelParam {
@@ -54,10 +57,10 @@ impl ChannelParam {
     }
 }
 
-pub(crate) struct VectorParam {
-    pub(crate) producers: Vec<ChannelParam>,
-    pub(crate) consumers: Vec<ChannelParam>,
-    pub(crate) info: Vec<u8>,
+pub struct VectorParam {
+    pub producers: Vec<ChannelParam>,
+    pub consumers: Vec<ChannelParam>,
+    pub info: Vec<u8>,
 }
 
 pub(crate) fn calc_shm_size(group0: &[ChannelParam], group1: &[ChannelParam]) -> usize {

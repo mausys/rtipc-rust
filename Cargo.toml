@@ -16,3 +16,11 @@ log = {version = "0.4"}
 
 
 
+
+[[example]]
+name = "client"
+path = "examples/client.rs"
+
+[[example]]
+name = "server"
+path = "examples/server.rs"

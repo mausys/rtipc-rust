@@ -2,18 +2,19 @@ use std::{
     marker::PhantomData,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{AsFd, AsRawFd, OwnedFd, RawFd},
+    os::fd::{AsRawFd, OwnedFd, RawFd},
 };
 
 use crate::{
     calc_shm_size,
     error::*,
     fd::{check_eventfd, eventfd},
-    protocol::{create_request_message, parse_request_message},
+    protocol::{parse_request_message, create_request_message},
     queue::{ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue},
     request::Request,
     shm::{Chunk, SharedMemory},
     ChannelParam,
+    VectorParam,
 };
 
 pub(crate) struct ProducerChannel {
@@ -153,16 +154,12 @@ pub struct ChannelVector {
 }
 
 impl ChannelVector {
-    pub(crate) fn new(
-        producer_params: &Vec<ChannelParam>,
-        consumer_params: &Vec<ChannelParam>,
-        info: Vec<u8>,
-    ) -> Result<(Self, Vec<RawFd>), RtIpcError> {
-        let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(producer_params.len());
-        let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(consumer_params.len());
+    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, Request), RtIpcError> {
+        let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
+        let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut fds = Vec::<RawFd>::new();
 
-        let shm_size = NonZeroUsize::new(calc_shm_size(producer_params, consumer_params))
+        let shm_size = NonZeroUsize::new(calc_shm_size(&vparam.producers, &vparam.consumers))
             .ok_or(RtIpcError::Argument)?;
 
         let shm = SharedMemory::new(shm_size)?;
@@ -170,7 +167,7 @@ impl ChannelVector {
 
         let mut shm_offset = 0;
 
-        for param in producer_params {
+        for param in &vparam.producers {
             let eventfd = if param.eventfd {
                 let efd = eventfd()?;
                 fds.push(efd.as_raw_fd());
@@ -182,14 +179,14 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ProducerChannel::new(param, chunk, eventfd)?;
+            let channel = ProducerChannel::new(&param, chunk, eventfd)?;
 
             producers.push(Some(channel));
 
             shm_offset += shm_size.get();
         }
 
-        for param in consumer_params {
+        for param in &vparam.consumers {
             let eventfd = if param.eventfd {
                 let efd = eventfd()?;
                 fds.push(efd.as_raw_fd());
@@ -200,46 +197,48 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ConsumerChannel::new(param, chunk, eventfd)?;
+            let channel = ConsumerChannel::new(&param, chunk, eventfd)?;
 
             consumers.push(Some(channel));
 
             shm_offset += shm_size.get();
         }
 
+        let msg = create_request_message(&vparam);
+
         Ok((
             Self {
                 producers,
                 consumers,
-                info,
+                info: vparam.info.clone(),
             },
-            fds,
+            Request::new(msg, fds),
         ))
     }
 
     pub(crate) fn from_request(mut req: Request) -> Result<Self, RtIpcError> {
-        let (producer_params, consumer_params, info) = parse_request_message(req.msg())?;
+        let vparam = parse_request_message(req.msg())?;
 
         let shm_fd = req.take_fd(0).ok_or(RtIpcError::Argument)?;
 
-        let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(consumer_params.len());
-        let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(producer_params.len());
+        let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
+        let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
 
-        let shm = SharedMemory::from_fd(OwnedFd::from(shm_fd))?;
+        let shm = SharedMemory::from_fd(shm_fd)?;
 
         let mut shm_offset = 0;
         let mut fd_index = 1;
-        for param in consumer_params {
+        for param in vparam.consumers {
             let shm_size = param.shm_size();
 
-            let eventfd = if param.eventfd == true {
+            let eventfd = if param.eventfd {
                 let fd = req
                     .take_fd(fd_index)
                     .ok_or(RtIpcError::Message(MessageError::Size))?;
 
                 check_eventfd(fd.as_raw_fd())?;
 
-                fd_index = fd_index + 1;
+                fd_index += 1;
                 Some(fd)
             } else {
                 None
@@ -253,17 +252,17 @@ impl ChannelVector {
             shm_offset += shm_size.get();
         }
 
-        for param in producer_params {
+        for param in vparam.producers {
             let shm_size = param.shm_size();
 
-            let eventfd = if param.eventfd == true {
+            let eventfd = if param.eventfd {
                 let fd = req
                     .take_fd(fd_index)
                     .ok_or(RtIpcError::Message(MessageError::Size))?;
 
                 check_eventfd(fd.as_raw_fd())?;
 
-                fd_index = fd_index + 1;
+                fd_index += 1;
                 Some(fd)
             } else {
                 None
@@ -280,7 +279,7 @@ impl ChannelVector {
         Ok(Self {
             producers,
             consumers,
-            info,
+            info: vparam.info.clone(),
         })
     }
 

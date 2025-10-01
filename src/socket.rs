@@ -2,13 +2,12 @@ use nix::sys::socket::{
     accept, bind, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
 };
 use nix::NixPath;
-use std::os::fd::{AsFd, OwnedFd, RawFd};
+use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::error::*;
-use crate::protocol::create_request_message;
 use crate::request::Request;
-use crate::ChannelParam;
+use crate::{ChannelParam, VectorParam};
 use crate::ChannelVector;
 
 struct Server {
@@ -39,15 +38,10 @@ impl Server {
 
 pub fn client_connect_fd(
     socket: RawFd,
-    producer_params: &Vec<ChannelParam>,
-    consumer_params: &Vec<ChannelParam>,
-    info: Vec<u8>,
+    vparam: VectorParam
 ) -> Result<ChannelVector, RtIpcError> {
-    let msg = create_request_message(producer_params, consumer_params, &info);
 
-    let (vec, fds) = ChannelVector::new(producer_params, consumer_params, info)?;
-
-    let req = Request::new(msg, fds);
+    let (vec, req) = ChannelVector::new(&vparam)?;
 
     req.send(socket)?;
 

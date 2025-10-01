@@ -54,8 +54,10 @@ impl ChannelParam {
     }
 }
 
-pub struct Server {
-    socket: OwnedFd,
+pub(crate) struct VectorParam {
+    pub(crate) producers: Vec<ChannelParam>,
+    pub(crate) consumers: Vec<ChannelParam>,
+    pub(crate) info: Vec<u8>,
 }
 
 pub(crate) fn calc_shm_size(group0: &[ChannelParam], group1: &[ChannelParam]) -> usize {

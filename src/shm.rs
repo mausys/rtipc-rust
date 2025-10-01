@@ -4,7 +4,7 @@ use std::{
     fmt,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{OwnedFd, RawFd, AsRawFd},
+    os::fd::{AsRawFd, OwnedFd, RawFd},
     ptr::NonNull,
     sync::{Arc, Weak},
 };

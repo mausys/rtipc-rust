@@ -178,7 +178,9 @@ fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), ShmError
 
 impl<'a> ChannelTable<'a> {
     pub(crate) fn from_msg(msg: &'a [u8]) -> Result<Self, RtIpcError> {
-        let header = msg.get(0..HEADER_SIZE).ok_or(RtIpcError::Message(MessageError::Size))?;
+        let header = msg
+            .get(0..HEADER_SIZE)
+            .ok_or(RtIpcError::Message(MessageError::Size))?;
 
         verify_header(header)?;
 
@@ -220,9 +222,7 @@ impl<'a> ChannelTable<'a> {
         })
     }
 
-    fn to_params(
-        &self,
-    ) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), RtIpcError> {
+    fn to_params(&self) -> Result<(Vec<ChannelParam>, Vec<ChannelParam>, Vec<u8>), RtIpcError> {
         let mut consumers: Vec<ChannelParam> = Vec::with_capacity(self.consumers.len());
         let mut producers: Vec<ChannelParam> = Vec::with_capacity(self.producers.len());
 

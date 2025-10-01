@@ -1,6 +1,5 @@
 use nix::errno::Errno;
 
-
 #[derive(Debug)]
 pub enum ShmError {
     Size,
@@ -17,16 +16,13 @@ pub enum MessageError {
     AtomicSize,
 }
 
-
 #[derive(Debug)]
 pub enum RtIpcError {
     Errno(Errno),
     Shm(ShmError),
     Message(MessageError),
-    Argument
-
+    Argument,
 }
-
 
 impl From<ShmError> for MessageError {
     fn from(_: ShmError) -> MessageError {
@@ -45,8 +41,6 @@ impl From<Errno> for RtIpcError {
         RtIpcError::Errno(errno)
     }
 }
-
-
 
 impl From<MessageError> for RtIpcError {
     fn from(field: MessageError) -> RtIpcError {

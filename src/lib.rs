@@ -1,29 +1,24 @@
 mod cache;
 mod channel;
 pub mod error;
+mod fd;
 mod header;
 mod protocol;
 mod queue;
 mod request;
 mod shm;
-mod vector;
-mod fd;
 mod socket;
 
 #[macro_use]
 extern crate nix;
 
-use std::{
-    num::NonZeroUsize,
-    sync::atomic::AtomicU32,
-    os::fd::OwnedFd,
-};
+use std::{num::NonZeroUsize, os::fd::OwnedFd, sync::atomic::AtomicU32};
 
 use crate::cache::cacheline_aligned;
 
+pub use channel::{ChannelVector, Consumer, Producer};
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
-pub use channel::{Producer, Consumer, ChannelVector};
 
 pub use log;
 
@@ -58,7 +53,6 @@ impl ChannelParam {
         NonZeroUsize::new(self.queue_size() + self.data_size()).unwrap()
     }
 }
-
 
 pub struct Server {
     socket: OwnedFd,

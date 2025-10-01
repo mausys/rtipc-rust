@@ -58,10 +58,10 @@ impl Queue {
         let mut offset_index = 0;
         let mut offset_msg = cacheline_aligned(queue_size);
 
-        let head: *mut Index = chunk.get_ptr(offset_index)?;
+        let tail: *mut Index = chunk.get_ptr(offset_index)?;
         offset_index += index_size;
 
-        let tail: *mut Index = chunk.get_ptr(offset_index)?;
+        let head: *mut Index = chunk.get_ptr(offset_index)?;
         offset_index += index_size;
 
         let mut chain: Vec<*mut Index> = Vec::with_capacity(queue_len);

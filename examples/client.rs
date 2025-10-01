@@ -24,7 +24,7 @@ mod common;
 const CLIENT2SERVER_CHANNELS: [ChannelParam; 1] = [ChannelParam {
     add_msgs: 0,
     msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
-    eventfd: true,
+    eventfd: false,
     info: vec![],
 }];
 
@@ -32,13 +32,13 @@ const SERVER2CLIENT_CHANNELS: [ChannelParam; 2] = [
     ChannelParam {
         add_msgs: 0,
         msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
-        eventfd: true,
+        eventfd: false,
         info: vec![],
     },
     ChannelParam {
         add_msgs: 10,
         msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
-        eventfd: true,
+        eventfd: false,
         info: vec![],
     },
 ];
@@ -62,7 +62,7 @@ impl App {
     }
 
     pub fn run(&mut self, cmds: &[MsgCommand]) {
-        let pause = time::Duration::from_millis(100);
+        let pause = time::Duration::from_millis(10);
 
         for cmd in cmds {
             self.command.msg().clone_from(cmd);
@@ -97,27 +97,27 @@ impl App {
 fn main() {
     let commands: [MsgCommand; 6] = [
         MsgCommand {
-            id: CommandId::Hello,
+            id: CommandId::Hello as u32,
             args: [1, 2, 0],
         },
         MsgCommand {
-            id: CommandId::SendEvent,
+            id: CommandId::SendEvent as u32,
             args: [11, 20, 0],
         },
         MsgCommand {
-            id: CommandId::SendEvent,
+            id: CommandId::SendEvent as u32 ,
             args: [12, 20, 1],
         },
         MsgCommand {
-            id: CommandId::Div,
+            id: CommandId::Div as u32,
             args: [100, 7, 0],
         },
         MsgCommand {
-            id: CommandId::Div,
+            id: CommandId::Div as u32,
             args: [100, 0, 0],
         },
         MsgCommand {
-            id: CommandId::Stop,
+            id: CommandId::Stop as u32,
             args: [0, 0, 0],
         },
     ];

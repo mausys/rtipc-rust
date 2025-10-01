@@ -1,23 +1,23 @@
 use std::fmt;
 
+#[repr(u32)]
 #[derive(Copy, Clone, Debug)]
 pub enum CommandId {
-    Hello,
-    Stop,
-    SendEvent,
-    Div,
-    Unknown,
+    Hello = 1,
+    Stop = 2,
+    SendEvent = 3,
+    Div = 4,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct MsgCommand {
-    pub id: CommandId,
+    pub id: u32,
     pub args: [i32; 3],
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct MsgResponse {
-    pub id: CommandId,
+    pub id: u32,
     pub result: i32,
     pub data: i32,
 }

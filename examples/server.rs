@@ -58,7 +58,8 @@ impl App {
             let args: [i32; 3] = cmd.args;
             println!("server received command: {}", cmd);
 
-            self.response.msg().result = match cmd.id {
+            let cmdid: CommandId = unsafe { ::std::mem::transmute(cmd.id) };
+            self.response.msg().result = match cmdid {
                 CommandId::Hello => 0,
                 CommandId::Stop => {
                     run = false;
@@ -84,6 +85,7 @@ impl App {
     }
     fn send_events(&mut self, id: u32, num: u32, force: bool) -> i32 {
         for i in 0..num {
+             println!("send_events {id} {i} {force}");
             let event = self.event.msg();
             event.id = id;
             event.nr = i;

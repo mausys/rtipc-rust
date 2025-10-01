@@ -13,11 +13,12 @@ const MAX_FD: usize = 253;
 pub(crate) struct Request {
     msg: Vec<u8>,
     fds: Vec<RawFd>,
+    cleanup: bool,
 }
 
 impl Request {
     pub(crate) fn new(msg: Vec<u8>, fds: Vec<RawFd>) -> Self {
-        Self { msg, fds }
+        Self { msg, fds, cleanup: false}
     }
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
         let iov = [IoSlice::new(&self.msg)];
@@ -56,7 +57,7 @@ impl Request {
             _ => return Err(Errno::EBADMSG),
         };
 
-        Ok(Self { msg, fds })
+        Ok(Self { msg, fds, cleanup: true})
     }
 
     pub(crate) fn msg(&self) -> &Vec<u8> {
@@ -88,6 +89,9 @@ impl Request {
 
 impl Drop for Request {
     fn drop(&mut self) {
+        if !self.cleanup {
+            return;
+        }
         for fd in &self.fds {
             if *fd > 0 {
                 let _ = close(*fd);

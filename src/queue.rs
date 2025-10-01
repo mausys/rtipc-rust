@@ -49,7 +49,7 @@ struct Queue {
 }
 
 impl Queue {
-    pub fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, MemError> {
+    pub fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, ShmError> {
         let queue_len = add_msgs + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
@@ -89,10 +89,6 @@ impl Queue {
             chain,
             msgs,
         })
-    }
-
-    pub(self) fn shm_offset(&self) -> usize {
-        self.chunk.offset()
     }
 
     fn is_valid_index(&self, idx: Index) -> bool {
@@ -180,7 +176,7 @@ impl ProducerQueue {
         chunk: Chunk,
         add_msgs: usize,
         msg_size: NonZeroUsize,
-    ) -> Result<Self, MemError> {
+    ) -> Result<Self, ShmError> {
         let queue = Queue::new(chunk, add_msgs, msg_size)?;
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
@@ -202,10 +198,6 @@ impl ProducerQueue {
 
     pub(crate) fn init(&self) {
         self.queue.init();
-    }
-
-    pub(crate) fn shm_offset(&self) -> usize {
-        self.queue.shm_offset()
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
@@ -401,17 +393,13 @@ impl ConsumerQueue {
         chunk: Chunk,
         add_msgs: usize,
         msg_size: NonZeroUsize,
-    ) -> Result<Self, MemError> {
+    ) -> Result<Self, ShmError> {
         let queue = Queue::new(chunk, add_msgs, msg_size)?;
         Ok(Self { queue, current: 0 })
     }
 
     pub(crate) fn init(&self) {
         self.queue.init();
-    }
-
-    pub(crate) fn shm_offset(&self) -> usize {
-        self.queue.shm_offset()
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {

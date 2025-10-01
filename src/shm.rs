@@ -43,25 +43,21 @@ pub(crate) struct Chunk {
 }
 
 impl Chunk {
-    pub(crate) fn get_ptr<T>(&self, offset: usize) -> Result<*mut T, MemError> {
+    pub(crate) fn get_ptr<T>(&self, offset: usize) -> Result<*mut T, ShmError> {
         let size = NonZeroUsize::new(size_of::<T>()).unwrap();
         let ptr = self.get_span_ptr(&Span { offset, size })?;
 
         Ok(ptr.cast())
     }
 
-    pub(crate) fn get_span_ptr(&self, span: &Span) -> Result<*mut (), MemError> {
+    pub(crate) fn get_span_ptr(&self, span: &Span) -> Result<*mut (), ShmError> {
         if span.offset + span.size.get() > self.size.get() {
-            return Err(MemError::Size);
+            return Err(ShmError::Size);
         }
 
-        let ptr: *mut () = unsafe { self.shm.ptr.byte_add(span.offset) };
+        let ptr: *mut () = unsafe { self.shm.ptr.byte_add(self.offset + span.offset) };
 
         Ok(ptr)
-    }
-
-    pub(crate) fn offset(&self) -> usize {
-        self.offset
     }
 }
 
@@ -74,9 +70,9 @@ pub struct SharedMemory {
 }
 
 impl SharedMemory {
-    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, MemError> {
+    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, ShmError> {
         if offset + size.get() > self.size.get() {
-            return Err(MemError::Size);
+            return Err(ShmError::Size);
         }
 
         Ok(Chunk {

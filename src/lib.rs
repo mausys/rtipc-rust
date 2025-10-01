@@ -7,31 +7,21 @@ mod queue;
 mod request;
 mod shm;
 mod vector;
+mod fd;
 
 #[macro_use]
 extern crate nix;
 
 use std::{
-    fmt,
-    mem::size_of,
     num::NonZeroUsize,
-    os::fd::OwnedFd,
-    path::Path,
-    sync::{atomic::AtomicU32, Arc},
+    sync::atomic::AtomicU32,
 };
 
-use nix::sys::stat::Mode;
-
-use crate::{
-    cache::cacheline_aligned,
-    queue::{ConsumerQueue, ProducerQueue},
-    shm::{Chunk, SharedMemory, Span},
-};
+use crate::cache::cacheline_aligned;
 
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
-pub use channel::{Producer, Consumer};
-pub use vector::ChannelVector;
+pub use channel::{Producer, Consumer, ChannelVector};
 
 pub use log;
 

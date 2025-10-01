@@ -17,9 +17,9 @@ struct Header {
 
 pub const HEADER_SIZE: usize = size_of::<Header>();
 
-pub(crate) fn check_header(buf: &[u8]) -> Result<(), HeaderError> {
+pub(crate) fn check_header(buf: &[u8]) -> Result<(), MessageError> {
     if buf.len() < size_of::<Header>() {
-        return Err(HeaderError::Size);
+        return Err(MessageError::Size);
     }
 
     let cacheline_size: u16 = max_cacheline_size().try_into().unwrap();
@@ -29,19 +29,19 @@ pub(crate) fn check_header(buf: &[u8]) -> Result<(), HeaderError> {
     let header = unsafe { ptr.read() };
 
     if header.magic != RTIC_MAGIC {
-        return Err(HeaderError::Magic);
+        return Err(MessageError::Magic);
     }
 
     if header.version != RTIC_VERSION {
-        return Err(HeaderError::Version);
+        return Err(MessageError::Version);
     }
 
     if header.cacheline_size != cacheline_size {
-        return Err(HeaderError::CachelineSize);
+        return Err(MessageError::CachelineSize);
     }
 
     if header.atomic_size != atomic_size {
-        return Err(HeaderError::AtomicSize);
+        return Err(MessageError::AtomicSize);
     }
 
     Ok(())

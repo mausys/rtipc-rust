@@ -37,7 +37,7 @@ impl Request {
         )?;
 
         if recv_empty.bytes == 0 {
-            return Err(Errno::EPROTO);
+            return Err(Errno::ENOMSG);
         }
 
         let mut msg: Vec<u8> = vec![0; recv_empty.bytes];
@@ -51,9 +51,9 @@ impl Request {
             MsgFlags::union(MsgFlags::MSG_PEEK, MsgFlags::MSG_TRUNC),
         )?;
 
-        let fds = match recv_data.cmsgs()?.next().ok_or(Errno::EPROTO)? {
+        let fds = match recv_data.cmsgs()?.next().ok_or(Errno::ENOMSG)? {
             ControlMessageOwned::ScmRights(fds) => fds,
-            _ => return Err(Errno::EPROTO),
+            _ => return Err(Errno::EBADMSG),
         };
 
         Ok(Self { msg, fds })
@@ -79,7 +79,7 @@ impl Request {
 
     pub(crate) fn add_fd(&mut self, fd: RawFd) -> Result<()> {
         if self.fds.len() >= MAX_FD {
-            return Err(Errno::ENOMEM);
+            return Err(Errno::EINVAL);
         }
         self.fds.push(fd);
         Ok(())

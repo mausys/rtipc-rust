@@ -40,7 +40,7 @@ pub enum ProduceTryResult {
 }
 
 struct Queue {
-    chunk: Chunk,
+    _chunk: Chunk,
     msg_size: NonZeroUsize,
     head: *mut Index,
     tail: *mut Index,
@@ -82,7 +82,7 @@ impl Queue {
         }
 
         Ok(Self {
-            chunk,
+            _chunk: chunk,
             msg_size,
             head,
             tail,
@@ -98,14 +98,6 @@ impl Queue {
     pub(crate) fn init(&self) {
         self.tail_store(INVALID_INDEX);
         self.head_store(INVALID_INDEX);
-
-        let last = self.chain.len() - 1;
-
-        for idx in 0..last {
-            self.queue_store(idx as Index, (idx + 1) as Index);
-        }
-
-        self.queue_store(last as Index, 0);
     }
 
     pub(self) fn msg_size(&self) -> NonZeroUsize {
@@ -180,11 +172,14 @@ impl ProducerQueue {
         let queue = Queue::new(chunk, add_msgs, msg_size)?;
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
-        for i in 0..queue_len - 1 {
+        let last = queue_len - 1;
+        for i in 0..last {
             let next = i + 1;
+            queue.queue_store(i as Index, next as Index);
             chain.push(next as Index);
         }
 
+        queue.queue_store(last as Index, 0);
         chain.push(0);
 
         Ok(Self {

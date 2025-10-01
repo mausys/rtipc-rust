@@ -38,6 +38,10 @@ impl ProducerChannel {
         })
     }
 
+    pub(crate) fn init(&self) {
+        self.queue.init();
+    }
+
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
         self.queue.msg_size()
     }
@@ -66,6 +70,11 @@ impl ConsumerChannel {
             info: param.info.clone(),
             eventfd,
         })
+    }
+
+
+    pub(crate) fn init(&self) {
+        self.queue.init();
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
@@ -180,6 +189,7 @@ impl ChannelVector {
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
             let channel = ProducerChannel::new(&param, chunk, eventfd)?;
+            channel.init();
 
             producers.push(Some(channel));
 
@@ -198,6 +208,7 @@ impl ChannelVector {
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
             let channel = ConsumerChannel::new(&param, chunk, eventfd)?;
+            channel.init();
 
             consumers.push(Some(channel));
 

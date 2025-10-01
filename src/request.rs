@@ -20,7 +20,7 @@ impl Request {
         Self { msg, fds }
     }
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
-        let iov = [IoSlice::new(b"hello")];
+        let iov = [IoSlice::new(&self.msg)];
 
         let cmsg = ControlMessage::ScmRights(self.fds.as_slice());
 

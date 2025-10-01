@@ -95,7 +95,7 @@ impl Layout {
 
         offset = mem_align(offset, align_of::<ChannelEntry>());
 
-        let channels: [usize; 2] = [offset, vparam.consumers.len() * size_of::<ChannelEntry>()];
+        let channels: [usize; 2] = [offset, offset + vparam.producers.len() * size_of::<ChannelEntry>()];
         offset += (vparam.producers.len() + vparam.consumers.len()) * size_of::<ChannelEntry>();
 
         let vector_info = offset;
@@ -199,10 +199,10 @@ impl<'a> ChannelTable<'a> {
         offset = mem_align(offset, align_of::<ChannelEntry>());
 
         let consumers_ptr = msg_get_ptr::<ChannelEntry>(msg, offset)?;
-        offset += num_consumers * size_of::<u32>();
+        offset += num_consumers * size_of::<ChannelEntry>();
 
         let producers_ptr = msg_get_ptr::<ChannelEntry>(msg, offset)?;
-        offset += num_producers * size_of::<u32>();
+        offset += num_producers * size_of::<ChannelEntry>();
 
         let vector_info_offset = offset;
 
@@ -270,14 +270,14 @@ pub(crate) fn create_request_message(vparam: &VectorParam
 
     msg_write(
         msg.as_mut_slice(),
-        layout.num_channels[1],
+        layout.num_channels[0],
         &(vparam.producers.len() as u32),
     )
     .unwrap();
 
     msg_write(
         msg.as_mut_slice(),
-        layout.num_channels[0],
+        layout.num_channels[1],
         &(vparam.consumers.len() as u32),
     )
     .unwrap();

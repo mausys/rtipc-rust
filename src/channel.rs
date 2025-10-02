@@ -154,11 +154,10 @@ impl<T> Consumer<T> {
     }
 
     pub fn pop(&mut self) -> ConsumeResult {
-
         if let Some(eventfd) = self.eventfd.as_ref() {
             match eventfd.read() {
                 Err(_) => return ConsumeResult::NoMsgAvailable,
-                Ok(_) => {},
+                Ok(_) => {}
             }
         }
 
@@ -173,7 +172,7 @@ impl<T> Consumer<T> {
             }
             result
         } else {
-             self.queue.flush()
+            self.queue.flush()
         }
     }
 }

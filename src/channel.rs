@@ -2,7 +2,7 @@ use std::{
     marker::PhantomData,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{AsRawFd, OwnedFd, RawFd},
+    os::fd::{AsRawFd, RawFd},
 };
 
 use nix::sys::eventfd::EventFd;

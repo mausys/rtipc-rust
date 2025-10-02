@@ -85,14 +85,6 @@ impl Request {
             None
         }
     }
-
-    pub(crate) fn add_fd(&mut self, fd: RawFd) -> Result<()> {
-        if self.fds.len() >= MAX_FD {
-            return Err(Errno::EINVAL);
-        }
-        self.fds.push(fd);
-        Ok(())
-    }
 }
 
 impl Drop for Request {

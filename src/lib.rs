@@ -12,7 +12,7 @@ mod socket;
 #[macro_use]
 extern crate nix;
 
-use std::{num::NonZeroUsize, os::fd::OwnedFd, sync::atomic::AtomicU32};
+use std::{num::NonZeroUsize, sync::atomic::AtomicU32};
 
 use crate::cache::cacheline_aligned;
 

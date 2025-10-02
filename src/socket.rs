@@ -2,13 +2,14 @@ use nix::sys::socket::{
     accept, bind, connect, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
 };
 use nix::NixPath;
+use nix::unistd::unlink;
 use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::error::*;
 use crate::request::Request;
 use crate::ChannelVector;
-use crate::{ChannelParam, VectorParam};
+use crate::VectorParam;
 
 pub struct Server {
     sockfd: OwnedFd,
@@ -64,4 +65,12 @@ pub fn client_connect<P: ?Sized + NixPath>(
     req.send(sockfd.as_raw_fd())?;
 
     Ok(vec)
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        if let Some(path) = self.addr.path() {
+            let _ = unlink(path);
+        }
+    }
 }

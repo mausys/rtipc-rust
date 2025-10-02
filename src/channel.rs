@@ -88,20 +88,18 @@ impl ConsumerChannel {
 
 pub struct Producer<T> {
     queue: ProducerQueue,
-    info: Vec<u8>,
     eventfd: Option<EventFd>,
     _type: PhantomData<T>,
 }
 
 impl<T> Producer<T> {
-    pub fn try_from(channel: ProducerChannel) -> Option<Self> {
+    fn try_from(channel: ProducerChannel) -> Option<Self> {
         if size_of::<T>() > channel.msg_size().get() {
             return None;
         }
 
         Some(Self {
             queue: channel.queue,
-            info: channel.info,
             eventfd: channel.eventfd,
             _type: PhantomData,
         })
@@ -113,7 +111,13 @@ impl<T> Producer<T> {
     }
 
     pub fn force_push(&mut self) -> ProduceForceResult {
-        self.queue.force_push()
+        let result = self.queue.force_push();
+
+        if result == ProduceForceResult::Success {
+            self.eventfd.as_ref().map(|ref fd| fd.write(1));
+        }
+
+        result
     }
 
     pub fn try_push(&mut self) -> ProduceTryResult {
@@ -123,20 +127,18 @@ impl<T> Producer<T> {
 
 pub struct Consumer<T> {
     queue: ConsumerQueue,
-    info: Vec<u8>,
     eventfd: Option<EventFd>,
     _type: PhantomData<T>,
 }
 
 impl<T> Consumer<T> {
-    pub(crate) fn try_from(channel: ConsumerChannel) -> Option<Self> {
+    fn try_from(channel: ConsumerChannel) -> Option<Self> {
         if size_of::<T>() > channel.msg_size().get() {
             return None;
         }
 
         Some(Self {
             queue: channel.queue,
-            info: channel.info,
             eventfd: channel.eventfd,
             _type: PhantomData,
         })
@@ -148,6 +150,7 @@ impl<T> Consumer<T> {
     }
 
     pub fn pop(&mut self) -> ConsumeResult {
+        self.eventfd.as_ref().map(|ref fd| fd.read());
         self.queue.pop()
     }
 
@@ -292,6 +295,14 @@ impl ChannelVector {
             consumers,
             info: vparam.info.clone(),
         })
+    }
+
+    pub fn consumer_info(&self, index: usize) -> Option<&Vec<u8>> {
+        self.consumers.get(index)?.as_ref().map(|c| c.info())
+    }
+
+    pub fn producer_info(&self, index: usize) -> Option<&Vec<u8>> {
+        self.producers.get(index)?.as_ref().map(|c| c.info())
     }
 
     pub fn take_consumer<T>(&mut self, index: usize) -> Option<Consumer<T>> {

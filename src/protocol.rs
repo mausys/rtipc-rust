@@ -7,7 +7,7 @@ use std::{
 use crate::{
     error::*,
     header::{verify_header, write_header, HEADER_SIZE},
-    mem_align, ChannelParam, VectorParam
+    mem_align, ChannelParam, VectorParam,
 };
 
 #[repr(C)]
@@ -17,8 +17,6 @@ struct ChannelEntry {
     eventfd: u32,
     info_size: u32,
 }
-
-
 
 impl ChannelEntry {
     fn from_param(param: &ChannelParam) -> Self {
@@ -81,9 +79,7 @@ struct Layout {
 }
 
 impl Layout {
-    pub(self) fn calc(
-        vparam: &VectorParam,
-    ) -> Self {
+    pub(self) fn calc(vparam: &VectorParam) -> Self {
         let mut offset = HEADER_SIZE;
 
         offset = mem_align(offset, align_of::<u32>());
@@ -95,7 +91,10 @@ impl Layout {
 
         offset = mem_align(offset, align_of::<ChannelEntry>());
 
-        let channels: [usize; 2] = [offset, offset + vparam.producers.len() * size_of::<ChannelEntry>()];
+        let channels: [usize; 2] = [
+            offset,
+            offset + vparam.producers.len() * size_of::<ChannelEntry>(),
+        ];
         offset += (vparam.producers.len() + vparam.consumers.len()) * size_of::<ChannelEntry>();
 
         let vector_info = offset;
@@ -242,19 +241,20 @@ impl<'a> ChannelTable<'a> {
             producers.push(param);
         }
 
-        Ok(VectorParam{consumers, producers, info})
+        Ok(VectorParam {
+            consumers,
+            producers,
+            info,
+        })
     }
 }
 
-pub(crate) fn parse_request_message(
-    msg: &[u8],
-) -> Result<VectorParam, RtIpcError> {
+pub(crate) fn parse_request_message(msg: &[u8]) -> Result<VectorParam, RtIpcError> {
     let table = ChannelTable::from_msg(msg)?;
     table.to_params()
 }
 
-pub(crate) fn create_request_message(vparam: &VectorParam
-) -> Vec<u8> {
+pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
     let layout = Layout::calc(vparam);
 
     let mut msg: Vec<u8> = vec![0; layout.size];
@@ -291,14 +291,15 @@ pub(crate) fn create_request_message(vparam: &VectorParam
     let producer_entries = unsafe { from_raw_parts_mut(producers_ptr, vparam.producers.len()) };
     let consumer_entries = unsafe { from_raw_parts_mut(consumers_ptr, vparam.consumers.len()) };
 
-    msg[layout.vector_info..layout.vector_info + vparam.info.len()].clone_from_slice(vparam.info.as_slice());
+    msg[layout.vector_info..layout.vector_info + vparam.info.len()]
+        .clone_from_slice(vparam.info.as_slice());
 
     let mut info_offset = layout.channel_infos;
 
     for (index, param) in vparam.producers.iter().enumerate() {
         producer_entries[index] = ChannelEntry::from_param(param);
 
-    if !param.info.is_empty() {
+        if !param.info.is_empty() {
             msg[info_offset..info_offset + param.info.len()]
                 .clone_from_slice(param.info.as_slice());
             info_offset += param.info.len();
@@ -308,7 +309,7 @@ pub(crate) fn create_request_message(vparam: &VectorParam
     for (index, param) in vparam.consumers.iter().enumerate() {
         consumer_entries[index] = ChannelEntry::from_param(param);
 
-    if !param.info.is_empty() {
+        if !param.info.is_empty() {
             msg[info_offset..info_offset + param.info.len()]
                 .clone_from_slice(param.info.as_slice());
             info_offset += param.info.len();

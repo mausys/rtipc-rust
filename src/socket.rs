@@ -1,5 +1,5 @@
 use nix::sys::socket::{
-    socket, accept, bind, listen, connect, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
+    accept, bind, connect, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
 };
 use nix::NixPath;
 use std::os::fd::{OwnedFd, RawFd};
@@ -7,8 +7,8 @@ use std::os::unix::io::AsRawFd;
 
 use crate::error::*;
 use crate::request::Request;
-use crate::{ChannelParam, VectorParam};
 use crate::ChannelVector;
+use crate::{ChannelParam, VectorParam};
 
 pub struct Server {
     sockfd: OwnedFd,
@@ -36,11 +36,7 @@ impl Server {
     }
 }
 
-pub fn client_connect_fd(
-    socket: RawFd,
-    vparam: VectorParam
-) -> Result<ChannelVector, RtIpcError> {
-
+pub fn client_connect_fd(socket: RawFd, vparam: VectorParam) -> Result<ChannelVector, RtIpcError> {
     let (vec, req) = ChannelVector::new(&vparam)?;
 
     req.send(socket)?;
@@ -50,9 +46,8 @@ pub fn client_connect_fd(
 
 pub fn client_connect<P: ?Sized + NixPath>(
     path: &P,
-    vparam: VectorParam
+    vparam: VectorParam,
 ) -> Result<ChannelVector, RtIpcError> {
-
     let sockfd = socket(
         AddressFamily::Unix,
         SockType::SeqPacket,
@@ -70,5 +65,3 @@ pub fn client_connect<P: ?Sized + NixPath>(
 
     Ok(vec)
 }
-
-

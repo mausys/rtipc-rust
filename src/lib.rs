@@ -19,8 +19,7 @@ use crate::cache::cacheline_aligned;
 pub use channel::{ChannelVector, Consumer, Producer};
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
-pub use socket::{Server, client_connect, client_connect_fd};
-
+pub use socket::{client_connect, client_connect_fd, Server};
 
 pub use log;
 

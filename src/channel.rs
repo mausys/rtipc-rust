@@ -5,29 +5,30 @@ use std::{
     os::fd::{AsRawFd, OwnedFd, RawFd},
 };
 
+use nix::sys::eventfd::EventFd;
+
 use crate::{
     calc_shm_size,
     error::*,
-    fd::{check_eventfd, eventfd},
-    protocol::{parse_request_message, create_request_message},
+    fd::{eventfd, into_eventfd},
+    protocol::{create_request_message, parse_request_message},
     queue::{ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue},
     request::Request,
     shm::{Chunk, SharedMemory},
-    ChannelParam,
-    VectorParam,
+    ChannelParam, VectorParam,
 };
 
 pub(crate) struct ProducerChannel {
     queue: ProducerQueue,
     info: Vec<u8>,
-    eventfd: Option<OwnedFd>,
+    eventfd: Option<EventFd>,
 }
 
 impl ProducerChannel {
     pub(crate) fn new(
         param: &ChannelParam,
         chunk: Chunk,
-        eventfd: Option<OwnedFd>,
+        eventfd: Option<EventFd>,
     ) -> Result<Self, ShmError> {
         let queue = ProducerQueue::new(chunk, param.add_msgs, param.msg_size)?;
 
@@ -54,14 +55,14 @@ impl ProducerChannel {
 pub(crate) struct ConsumerChannel {
     queue: ConsumerQueue,
     info: Vec<u8>,
-    eventfd: Option<OwnedFd>,
+    eventfd: Option<EventFd>,
 }
 
 impl ConsumerChannel {
     pub(crate) fn new(
         param: &ChannelParam,
         chunk: Chunk,
-        eventfd: Option<OwnedFd>,
+        eventfd: Option<EventFd>,
     ) -> Result<Self, ShmError> {
         let queue = ConsumerQueue::new(chunk, param.add_msgs, param.msg_size)?;
 
@@ -71,7 +72,6 @@ impl ConsumerChannel {
             eventfd,
         })
     }
-
 
     pub(crate) fn init(&self) {
         self.queue.init();
@@ -89,7 +89,7 @@ impl ConsumerChannel {
 pub struct Producer<T> {
     queue: ProducerQueue,
     info: Vec<u8>,
-    eventfd: Option<OwnedFd>,
+    eventfd: Option<EventFd>,
     _type: PhantomData<T>,
 }
 
@@ -124,7 +124,7 @@ impl<T> Producer<T> {
 pub struct Consumer<T> {
     queue: ConsumerQueue,
     info: Vec<u8>,
-    eventfd: Option<OwnedFd>,
+    eventfd: Option<EventFd>,
     _type: PhantomData<T>,
 }
 
@@ -243,14 +243,14 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd {
-                let fd = req
+                let ofd = req
                     .take_fd(fd_index)
                     .ok_or(RtIpcError::Message(MessageError::Size))?;
 
-                check_eventfd(fd.as_raw_fd())?;
+                let efd = into_eventfd(ofd)?;
 
                 fd_index += 1;
-                Some(fd)
+                Some(efd)
             } else {
                 None
             };
@@ -267,14 +267,14 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd {
-                let fd = req
+                let ofd = req
                     .take_fd(fd_index)
                     .ok_or(RtIpcError::Message(MessageError::Size))?;
 
-                check_eventfd(fd.as_raw_fd())?;
+                let efd = into_eventfd(ofd)?;
 
                 fd_index += 1;
-                Some(fd)
+                Some(efd)
             } else {
                 None
             };

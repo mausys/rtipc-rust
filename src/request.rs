@@ -18,7 +18,11 @@ pub(crate) struct Request {
 
 impl Request {
     pub(crate) fn new(msg: Vec<u8>, fds: Vec<RawFd>) -> Self {
-        Self { msg, fds, cleanup: false}
+        Self {
+            msg,
+            fds,
+            cleanup: false,
+        }
     }
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
         let iov = [IoSlice::new(&self.msg)];
@@ -57,7 +61,11 @@ impl Request {
             _ => return Err(Errno::EBADMSG),
         };
 
-        Ok(Self { msg, fds, cleanup: true})
+        Ok(Self {
+            msg,
+            fds,
+            cleanup: true,
+        })
     }
 
     pub(crate) fn msg(&self) -> &Vec<u8> {

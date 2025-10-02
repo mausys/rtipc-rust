@@ -121,7 +121,11 @@ impl<T> Producer<T> {
     }
 
     pub fn try_push(&mut self) -> ProduceTryResult {
-        self.queue.try_push()
+        let result = self.queue.try_push();
+        if result == ProduceTryResult::Success {
+            self.eventfd.as_ref().map(|ref fd| fd.write(1));
+        }
+        result
     }
 }
 
@@ -150,12 +154,27 @@ impl<T> Consumer<T> {
     }
 
     pub fn pop(&mut self) -> ConsumeResult {
-        self.eventfd.as_ref().map(|ref fd| fd.read());
+
+        if let Some(eventfd) = self.eventfd.as_ref() {
+            match eventfd.read() {
+                Err(_) => return ConsumeResult::NoMsgAvailable,
+                Ok(_) => {},
+            }
+        }
+
         self.queue.pop()
     }
 
     pub fn flush(&mut self) -> ConsumeResult {
-        self.queue.flush()
+        if self.eventfd.is_some() {
+            let mut result = ConsumeResult::NoMsgAvailable;
+            while self.pop() == ConsumeResult::Success {
+                result = ConsumeResult::Success;
+            }
+            result
+        } else {
+             self.queue.flush()
+        }
     }
 }
 

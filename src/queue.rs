@@ -155,6 +155,9 @@ impl Queue {
     }
 }
 
+// every Queue has its own shared memory region
+unsafe impl Send for Queue {}
+
 pub struct ProducerQueue {
     queue: Queue,
     chain: Vec<Index>, /* local copy of queue, because queue is read only for consumer */

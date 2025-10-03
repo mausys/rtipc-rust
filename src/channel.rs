@@ -2,7 +2,7 @@ use std::{
     marker::PhantomData,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{AsRawFd, RawFd},
+    os::fd::{AsFd, AsRawFd, RawFd, BorrowedFd},
 };
 
 use nix::sys::eventfd::EventFd;
@@ -127,7 +127,16 @@ impl<T> Producer<T> {
         }
         result
     }
+
+    pub fn eventfd(&self) -> Option<BorrowedFd> {
+        self.eventfd.as_ref().map(|fd| fd.as_fd())
+    }
+
+    pub fn take_eventfd(&mut self) -> Option<EventFd> {
+        self.eventfd.take()
+    }
 }
+
 
 pub struct Consumer<T> {
     queue: ConsumerQueue,
@@ -175,7 +184,17 @@ impl<T> Consumer<T> {
             self.queue.flush()
         }
     }
+
+    pub fn eventfd(&self) -> Option<BorrowedFd> {
+        self.eventfd.as_ref().map(|fd| fd.as_fd())
+    }
+
+    pub fn take_eventfd(&mut self) -> Option<EventFd> {
+        self.eventfd.take()
+    }
+
 }
+
 
 pub struct ChannelVector {
     producers: Vec<Option<ProducerChannel>>,

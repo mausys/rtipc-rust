@@ -2,6 +2,8 @@ use nix::sys::socket::Backlog;
 
 use std::fmt;
 use std::{thread, time};
+use std::time::Duration;
+
 
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
@@ -16,8 +18,10 @@ use rtipc::Server;
 
 use crate::common::CommandId;
 use crate::common::MsgCommand;
-use crate::common::MsgResponse;
 use crate::common::MsgEvent;
+use crate::common::MsgResponse;
+
+use crate::common::wait_pollin;
 
 mod common;
 
@@ -27,8 +31,19 @@ struct App {
     event: Producer<MsgEvent>,
 }
 
+
+fn print_vector(vec: &ChannelVector)
+{
+    let vec_info  = str::from_utf8(vec.info()).unwrap();
+    let cmd_info = str::from_utf8(vec.consumer_info(0).unwrap()).unwrap();
+    let rsp_info = str::from_utf8(vec.producer_info(1).unwrap()).unwrap();
+    let evt_info = str::from_utf8(vec.producer_info(0).unwrap()).unwrap();
+    println!("received vec={} cmd={} rsp={} rvt={}", vec_info, cmd_info, rsp_info, evt_info);
+}
+
 impl App {
     pub fn new(mut vec: ChannelVector) -> Self {
+        print_vector(&vec);
         let command = vec.take_consumer(0).unwrap();
         let response = vec.take_producer(0).unwrap();
         let event = vec.take_producer(1).unwrap();
@@ -40,12 +55,11 @@ impl App {
         }
     }
     fn run(&mut self) {
-        let pause = time::Duration::from_millis(10);
         let mut run = true;
         let mut cnt = 0;
 
         while run {
-            thread::sleep(pause);
+            wait_pollin(self.command.eventfd(), Duration::from_millis(10));
             match self.command.pop() {
                 ConsumeResult::Error => panic!(),
                 ConsumeResult::NoMsgAvailable => continue,
@@ -73,10 +87,6 @@ impl App {
                     self.response.msg().data = res;
                     err
                 }
-                _ => {
-                    println!("unknown Command");
-                    -1
-                }
             };
             self.response.force_push();
 
@@ -85,7 +95,7 @@ impl App {
     }
     fn send_events(&mut self, id: u32, num: u32, force: bool) -> i32 {
         for i in 0..num {
-             println!("send_events {id} {i} {force}");
+            println!("send_events {id} {i} {force}");
             let event = self.event.msg();
             event.id = id;
             event.nr = i;

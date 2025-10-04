@@ -1,7 +1,11 @@
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::os::fd::OwnedFd;
-use std::{thread, time};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::thread::JoinHandle;
+use std::time;
+use std::time::Duration;
+
 
 use rtipc::client_connect;
 use rtipc::ChannelVector;
@@ -13,18 +17,18 @@ use rtipc::{ChannelParam, VectorParam};
 use rtipc::ProduceForceResult;
 use rtipc::ProduceTryResult;
 
-
 use crate::common::CommandId;
 use crate::common::MsgCommand;
-use crate::common::MsgResponse;
 use crate::common::MsgEvent;
+use crate::common::MsgResponse;
+use crate::common::wait_pollin;
 
 mod common;
 
 const CLIENT2SERVER_CHANNELS: [ChannelParam; 1] = [ChannelParam {
     add_msgs: 0,
     msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
-    eventfd: false,
+    eventfd: true,
     info: vec![],
 }];
 
@@ -38,15 +42,33 @@ const SERVER2CLIENT_CHANNELS: [ChannelParam; 2] = [
     ChannelParam {
         add_msgs: 10,
         msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
-        eventfd: false,
+        eventfd: true,
         info: vec![],
     },
 ];
 
+static STOP_EVENT_LISTERNER: AtomicBool = AtomicBool::new(false);
+
+
+
+fn handle_events(mut consumer: Consumer<MsgEvent>) {
+    while !STOP_EVENT_LISTERNER.load(Ordering::Relaxed) {
+        wait_pollin(consumer.eventfd(), Duration::from_millis(10));
+
+        match consumer.pop() {
+            ConsumeResult::Error => panic!(),
+            ConsumeResult::NoMsgAvailable => {},
+            ConsumeResult::NoUpdate => {},
+            ConsumeResult::Success =>  println!("client received event: {}", consumer.msg().unwrap()),
+            ConsumeResult::MsgsDiscarded => {}
+        };
+    }
+}
+
 struct App {
     command: Producer<MsgCommand>,
     response: Consumer<MsgResponse>,
-    event: Consumer<MsgEvent>,
+    event_listener: Option<JoinHandle<()>>,
 }
 
 impl App {
@@ -54,10 +76,13 @@ impl App {
         let command = vec.take_producer(0).unwrap();
         let response = vec.take_consumer(0).unwrap();
         let event = vec.take_consumer(1).unwrap();
+
+        let event_listener = Some(thread::spawn(move || handle_events(event)));
+
         Self {
             command,
             response,
-            event,
+            event_listener,
         }
     }
 
@@ -80,17 +105,10 @@ impl App {
 
                 println!("client received response: {}", self.response.msg().unwrap());
             }
-            loop {
-                match self.event.pop() {
-                    ConsumeResult::Error => panic!(),
-                    ConsumeResult::NoMsgAvailable => break,
-                    ConsumeResult::NoUpdate => break,
-                    ConsumeResult::Success => {}
-                    ConsumeResult::MsgsDiscarded => {}
-                };
-                println!("client received event: {}", self.event.msg().unwrap());
-            }
         }
+        thread::sleep(time::Duration::from_millis(1000));
+        STOP_EVENT_LISTERNER.store(true, Ordering::Relaxed);
+        self.event_listener.take().map(|h| h.join());
     }
 }
 
@@ -105,7 +123,7 @@ fn main() {
             args: [11, 20, 0],
         },
         MsgCommand {
-            id: CommandId::SendEvent as u32 ,
+            id: CommandId::SendEvent as u32,
             args: [12, 20, 1],
         },
         MsgCommand {

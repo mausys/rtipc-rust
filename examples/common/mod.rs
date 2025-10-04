@@ -1,5 +1,12 @@
 use std::fmt;
 
+use std::os::fd::BorrowedFd;
+use std::time::Duration;
+use std::thread;
+
+use nix::errno::Errno;
+use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+
 #[repr(u32)]
 #[derive(Copy, Clone, Debug)]
 pub enum CommandId {
@@ -51,5 +58,21 @@ impl fmt::Display for MsgResponse {
 impl fmt::Display for MsgEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "id: {}\n\tnr: {}", self.id, self.nr)
+    }
+}
+
+
+pub fn wait_pollin(fd: Option<BorrowedFd>, timeout: Duration) {
+    if let Some(fd) = fd {
+        let pollfd = PollFd::new(fd, PollFlags::POLLIN);
+        let mut fds = [pollfd];
+        let duration: PollTimeout = timeout.try_into().unwrap();
+        match poll(&mut fds, duration) {
+            Err(Errno::EAGAIN) => {}
+            Err(_) => thread::sleep(timeout),
+            Ok(_) => {}
+        }
+    } else {
+        thread::sleep(timeout);
     }
 }

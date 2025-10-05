@@ -6,7 +6,6 @@ use std::thread::JoinHandle;
 use std::time;
 use std::time::Duration;
 
-
 use rtipc::client_connect;
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
@@ -17,39 +16,15 @@ use rtipc::{ChannelParam, VectorParam};
 use rtipc::ProduceForceResult;
 use rtipc::ProduceTryResult;
 
+use crate::common::wait_pollin;
 use crate::common::CommandId;
 use crate::common::MsgCommand;
 use crate::common::MsgEvent;
 use crate::common::MsgResponse;
-use crate::common::wait_pollin;
 
 mod common;
 
-const CLIENT2SERVER_CHANNELS: [ChannelParam; 1] = [ChannelParam {
-    add_msgs: 0,
-    msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
-    eventfd: true,
-    info: vec![],
-}];
-
-const SERVER2CLIENT_CHANNELS: [ChannelParam; 2] = [
-    ChannelParam {
-        add_msgs: 0,
-        msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
-        eventfd: false,
-        info: vec![],
-    },
-    ChannelParam {
-        add_msgs: 10,
-        msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
-        eventfd: true,
-        info: vec![],
-    },
-];
-
 static STOP_EVENT_LISTERNER: AtomicBool = AtomicBool::new(false);
-
-
 
 fn handle_events(mut consumer: Consumer<MsgEvent>) {
     while !STOP_EVENT_LISTERNER.load(Ordering::Relaxed) {
@@ -57,9 +32,11 @@ fn handle_events(mut consumer: Consumer<MsgEvent>) {
 
         match consumer.pop() {
             ConsumeResult::Error => panic!(),
-            ConsumeResult::NoMsgAvailable => {},
-            ConsumeResult::NoUpdate => {},
-            ConsumeResult::Success =>  println!("client received event: {}", consumer.msg().unwrap()),
+            ConsumeResult::NoMsgAvailable => {}
+            ConsumeResult::NoUpdate => {}
+            ConsumeResult::Success => {
+                println!("client received event: {}", consumer.msg().unwrap())
+            }
             ConsumeResult::MsgsDiscarded => {}
         };
     }
@@ -139,9 +116,32 @@ fn main() {
             args: [0, 0, 0],
         },
     ];
+
+    let c2s_channels: [ChannelParam; 1] = [ChannelParam {
+        add_msgs: 0,
+        msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
+        eventfd: true,
+        info: b"rpc command".to_vec(),
+    }];
+
+    let s2c_channels: [ChannelParam; 2] = [
+        ChannelParam {
+            add_msgs: 0,
+            msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
+            eventfd: false,
+            info:  b"rpc response".to_vec(),
+        },
+        ChannelParam {
+            add_msgs: 10,
+            msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
+            eventfd: true,
+            info:  b"rpc event".to_vec(),
+        },
+    ];
+
     let vparam = VectorParam {
-        producers: CLIENT2SERVER_CHANNELS.to_vec(),
-        consumers: SERVER2CLIENT_CHANNELS.to_vec(),
+        producers: c2s_channels.to_vec(),
+        consumers: s2c_channels.to_vec(),
         info: vec![],
     };
     let vec = client_connect("rtipc.sock", vparam).unwrap();

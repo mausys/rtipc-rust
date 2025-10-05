@@ -38,7 +38,7 @@ fn print_vector(vec: &ChannelVector)
     let cmd_info = str::from_utf8(vec.consumer_info(0).unwrap()).unwrap();
     let rsp_info = str::from_utf8(vec.producer_info(1).unwrap()).unwrap();
     let evt_info = str::from_utf8(vec.producer_info(0).unwrap()).unwrap();
-    println!("received vec={} cmd={} rsp={} rvt={}", vec_info, cmd_info, rsp_info, evt_info);
+    println!("received vec={} cmd={} rsp={} evt={}", vec_info, cmd_info, rsp_info, evt_info);
 }
 
 impl App {

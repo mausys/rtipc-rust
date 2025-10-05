@@ -1,8 +1,8 @@
 use std::fmt;
 
 use std::os::fd::BorrowedFd;
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 use nix::errno::Errno;
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
@@ -60,7 +60,6 @@ impl fmt::Display for MsgEvent {
         writeln!(f, "id: {}\n\tnr: {}", self.id, self.nr)
     }
 }
-
 
 pub fn wait_pollin(fd: Option<BorrowedFd>, timeout: Duration) {
     if let Some(fd) = fd {

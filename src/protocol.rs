@@ -29,14 +29,6 @@ impl ChannelEntry {
     }
 }
 
-struct ChannelTable<'a> {
-    msg: &'a [u8],
-    consumers: &'a [ChannelEntry],
-    producers: &'a [ChannelEntry],
-    vector_info_offset: usize,
-    vector_info_size: usize,
-}
-
 impl ChannelEntry {
     pub(crate) fn to_param(
         &self,
@@ -173,6 +165,14 @@ fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), ShmError
     }
 
     Ok(())
+}
+
+struct ChannelTable<'a> {
+    msg: &'a [u8],
+    consumers: &'a [ChannelEntry],
+    producers: &'a [ChannelEntry],
+    vector_info_offset: usize,
+    vector_info_size: usize,
 }
 
 impl<'a> ChannelTable<'a> {

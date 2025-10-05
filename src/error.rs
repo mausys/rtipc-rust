@@ -14,6 +14,7 @@ pub enum MessageError {
     Cookie,
     CachelineSize,
     AtomicSize,
+    FileDescriptor,
 }
 
 #[derive(Debug)]

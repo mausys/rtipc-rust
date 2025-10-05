@@ -72,18 +72,11 @@ impl Request {
         &self.msg
     }
 
-    pub(crate) fn take_fd(&mut self, index: usize) -> Option<OwnedFd> {
-        if let Some(fd) = self.fds.get_mut(index) {
-            if *fd < 0 {
-                None
-            } else {
-                let owned_fd = unsafe { OwnedFd::from_raw_fd(*fd) };
-                *fd = -1;
-                Some(owned_fd)
-            }
-        } else {
-            None
-        }
+    pub(crate) fn take_fds(&mut self) -> Vec<Option<OwnedFd>> {
+        self.fds
+            .drain(0..)
+            .map(|fd| Some(unsafe { OwnedFd::from_raw_fd(fd) }))
+            .collect()
     }
 }
 

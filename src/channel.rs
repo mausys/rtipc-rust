@@ -2,7 +2,7 @@ use std::{
     marker::PhantomData,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{AsFd, AsRawFd, RawFd, BorrowedFd},
+    os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd},
 };
 
 use nix::sys::eventfd::EventFd;
@@ -137,7 +137,6 @@ impl<T> Producer<T> {
     }
 }
 
-
 pub struct Consumer<T> {
     queue: ConsumerQueue,
     eventfd: Option<EventFd>,
@@ -192,9 +191,7 @@ impl<T> Consumer<T> {
     pub fn take_eventfd(&mut self) -> Option<EventFd> {
         self.eventfd.take()
     }
-
 }
-
 
 pub struct ChannelVector {
     producers: Vec<Option<ProducerChannel>>,
@@ -268,14 +265,18 @@ impl ChannelVector {
     }
 
     pub(crate) fn from_request(mut req: Request) -> Result<Self, RtIpcError> {
+        let mut fds = req.take_fds();
+        let shmfd = fds
+            .get_mut(0)
+            .ok_or(RtIpcError::Message(MessageError::FileDescriptor))?
+            .take()
+            .ok_or(MessageError::FileDescriptor)?;
+        let shm = SharedMemory::from_fd(shmfd)?;
         let vparam = parse_request_message(req.msg())?;
 
-        let shm_fd = req.take_fd(0).ok_or(RtIpcError::Argument)?;
 
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
-
-        let shm = SharedMemory::from_fd(shm_fd)?;
 
         let mut shm_offset = 0;
         let mut fd_index = 1;
@@ -283,9 +284,11 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd {
-                let ofd = req
-                    .take_fd(fd_index)
-                    .ok_or(RtIpcError::Message(MessageError::Size))?;
+                let ofd = fds
+                    .get_mut(fd_index)
+                    .ok_or(RtIpcError::Message(MessageError::FileDescriptor))?
+                    .take()
+                    .ok_or(MessageError::FileDescriptor)?;
 
                 let efd = into_eventfd(ofd)?;
 
@@ -307,9 +310,11 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd {
-                let ofd = req
-                    .take_fd(fd_index)
-                    .ok_or(RtIpcError::Message(MessageError::Size))?;
+                let ofd = fds
+                    .get_mut(fd_index)
+                    .ok_or(RtIpcError::Message(MessageError::FileDescriptor))?
+                    .take()
+                    .ok_or(MessageError::FileDescriptor)?;
 
                 let efd = into_eventfd(ofd)?;
 

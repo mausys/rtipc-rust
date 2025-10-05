@@ -1,8 +1,8 @@
 use nix::sys::socket::{
     accept, bind, connect, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
 };
-use nix::NixPath;
 use nix::unistd::unlink;
+use nix::NixPath;
 use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 

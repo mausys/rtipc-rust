@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 use std::time;
 use std::time::Duration;
 
+use rtipc::error::*;
 use rtipc::client_connect;
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
@@ -26,26 +27,35 @@ mod common;
 
 static STOP_EVENT_LISTERNER: AtomicBool = AtomicBool::new(false);
 
-fn handle_events(mut consumer: Consumer<MsgEvent>) {
+fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), RtIpcError> {
     while !STOP_EVENT_LISTERNER.load(Ordering::Relaxed) {
-        wait_pollin(consumer.eventfd(), Duration::from_millis(10));
+        let eventfd = consumer.eventfd().unwrap();
+        let ev = wait_pollin(eventfd, Duration::from_millis(10))?;
+
+        if !ev {
+            continue;
+        }
 
         match consumer.pop() {
             ConsumeResult::Error => panic!(),
-            ConsumeResult::NoMsgAvailable => {}
-            ConsumeResult::NoUpdate => {}
+            ConsumeResult::NoMsgAvailable => { return Err(RtIpcError::Argument) }
+            ConsumeResult::NoUpdate => { return Err(RtIpcError::Argument) }
             ConsumeResult::Success => {
                 println!("client received event: {}", consumer.msg().unwrap())
             }
-            ConsumeResult::MsgsDiscarded => {}
+            ConsumeResult::MsgsDiscarded => {
+                println!("client received event: {}", consumer.msg().unwrap())
+            }
         };
     }
+    println!("handle_events returns");
+    Ok(())
 }
 
 struct App {
     command: Producer<MsgCommand>,
     response: Consumer<MsgResponse>,
-    event_listener: Option<JoinHandle<()>>,
+    event_listener: Option<JoinHandle<Result<(), RtIpcError>>>,
 }
 
 impl App {
@@ -70,20 +80,21 @@ impl App {
             self.command.msg().clone_from(cmd);
             self.command.force_push();
 
-            thread::sleep(pause);
+
             loop {
                 match self.response.pop() {
                     ConsumeResult::Error => panic!(),
-                    ConsumeResult::NoMsgAvailable => break,
-                    ConsumeResult::NoUpdate => break,
+                    ConsumeResult::NoMsgAvailable => { thread::sleep(pause); continue; },
+                    ConsumeResult::NoUpdate =>  { thread::sleep(pause); continue; },
                     ConsumeResult::Success => {}
                     ConsumeResult::MsgsDiscarded => {}
                 };
 
                 println!("client received response: {}", self.response.msg().unwrap());
+                break;
             }
         }
-        thread::sleep(time::Duration::from_millis(1000));
+        thread::sleep(time::Duration::from_millis(100));
         STOP_EVENT_LISTERNER.store(true, Ordering::Relaxed);
         self.event_listener.take().map(|h| h.join());
     }
@@ -142,9 +153,10 @@ fn main() {
     let vparam = VectorParam {
         producers: c2s_channels.to_vec(),
         consumers: s2c_channels.to_vec(),
-        info: vec![],
+        info:  b"rpc example".to_vec(),
     };
     let vec = client_connect("rtipc.sock", vparam).unwrap();
     let mut app = App::new(vec);
+     thread::sleep(time::Duration::from_millis(100));
     app.run(&commands);
 }

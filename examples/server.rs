@@ -36,9 +36,9 @@ fn print_vector(vec: &ChannelVector)
 {
     let vec_info  = str::from_utf8(vec.info()).unwrap();
     let cmd_info = str::from_utf8(vec.consumer_info(0).unwrap()).unwrap();
-    let rsp_info = str::from_utf8(vec.producer_info(1).unwrap()).unwrap();
-    let evt_info = str::from_utf8(vec.producer_info(0).unwrap()).unwrap();
-    println!("received vec={} cmd={} rsp={} evt={}", vec_info, cmd_info, rsp_info, evt_info);
+    let rsp_info = str::from_utf8(vec.producer_info(0).unwrap()).unwrap();
+    let evt_info = str::from_utf8(vec.producer_info(1).unwrap()).unwrap();
+    println!("server received request vec={} cmd={} rsp={} evt={}", vec_info, cmd_info, rsp_info, evt_info);
 }
 
 impl App {
@@ -59,7 +59,8 @@ impl App {
         let mut cnt = 0;
 
         while run {
-            wait_pollin(self.command.eventfd(), Duration::from_millis(10));
+            let eventfd = self.command.eventfd().unwrap();
+            let _ = wait_pollin(eventfd, Duration::from_millis(10));
             match self.command.pop() {
                 ConsumeResult::Error => panic!(),
                 ConsumeResult::NoMsgAvailable => continue,
@@ -95,7 +96,6 @@ impl App {
     }
     fn send_events(&mut self, id: u32, num: u32, force: bool) -> i32 {
         for i in 0..num {
-            println!("send_events {id} {i} {force}");
             let event = self.event.msg();
             event.id = id;
             event.nr = i;

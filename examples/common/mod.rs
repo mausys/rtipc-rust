@@ -61,17 +61,9 @@ impl fmt::Display for MsgEvent {
     }
 }
 
-pub fn wait_pollin(fd: Option<BorrowedFd>, timeout: Duration) {
-    if let Some(fd) = fd {
-        let pollfd = PollFd::new(fd, PollFlags::POLLIN);
-        let mut fds = [pollfd];
-        let duration: PollTimeout = timeout.try_into().unwrap();
-        match poll(&mut fds, duration) {
-            Err(Errno::EAGAIN) => {}
-            Err(_) => thread::sleep(timeout),
-            Ok(_) => {}
-        }
-    } else {
-        thread::sleep(timeout);
-    }
+pub fn wait_pollin(fd: BorrowedFd, timeout: Duration) -> Result<bool, Errno> {
+    let mut fds = [PollFd::new(fd, PollFlags::POLLIN)];
+    let duration: PollTimeout = timeout.try_into().unwrap();
+    poll(&mut fds, duration)?;
+    Ok(fds[0].revents().map_or(false, |flags| !flags.is_empty()))
 }

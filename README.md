@@ -16,7 +16,7 @@
 ### Design
 At its core, RTIPC uses a wait-free, zero-copy, single-producer single-consumer (SPSC) circular message queue. This queue allows a producer to overwrite the oldest message if the queue is full, ensuring real-time safety without blocking or performance degradation.
 
-###How It Works
+### How It Works
 
 1. The client initializes a channel vector based on desired parameters.
 2. This channel vector contains one or more producer/consumer channels, all mapped onto a shared memory region.

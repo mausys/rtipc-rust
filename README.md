@@ -11,7 +11,7 @@
 - **Multithreading:** Multiple threads can communicate concurrently over separate channels.
 
 ### Limitations
--Fixed-size messages and queues: Both the size of each message and the number of messages in a queue are fixed at creation time.
+- **Fixed-size messages and queues:** Both the size of each message and the number of messages in a queue are fixed at creation time.
 
 ### Design
 At its core, RTIPC uses a wait-free, zero-copy, single-producer single-consumer (SPSC) circular message queue. This queue allows a producer to overwrite the oldest message if the queue is full, ensuring real-time safety without blocking or performance degradation.

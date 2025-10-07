@@ -1,18 +1,14 @@
 use nix::sys::socket::Backlog;
 
-use std::fmt;
 use std::time::Duration;
-use std::{thread, time};
 
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
 use rtipc::Consumer;
 use rtipc::Producer;
 
-use rtipc::ProduceForceResult;
 use rtipc::ProduceTryResult;
 
-use rtipc::error::*;
 use rtipc::Server;
 
 use crate::common::CommandId;

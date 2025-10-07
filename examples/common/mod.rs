@@ -1,7 +1,6 @@
 use std::fmt;
 
 use std::os::fd::BorrowedFd;
-use std::thread;
 use std::time::Duration;
 
 use nix::errno::Errno;

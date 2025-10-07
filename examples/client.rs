@@ -1,4 +1,3 @@
-use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -14,8 +13,6 @@ use rtipc::Consumer;
 use rtipc::Producer;
 use rtipc::{ChannelParam, VectorParam};
 
-use rtipc::ProduceForceResult;
-use rtipc::ProduceTryResult;
 
 use crate::common::wait_pollin;
 use crate::common::CommandId;

@@ -6,8 +6,8 @@ use std::thread::JoinHandle;
 use std::time;
 use std::time::Duration;
 
-use rtipc::error::*;
 use rtipc::client_connect;
+use rtipc::error::*;
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
 use rtipc::Consumer;
@@ -38,8 +38,8 @@ fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), RtIpcError> {
 
         match consumer.pop() {
             ConsumeResult::Error => panic!(),
-            ConsumeResult::NoMsgAvailable => { return Err(RtIpcError::Argument) }
-            ConsumeResult::NoUpdate => { return Err(RtIpcError::Argument) }
+            ConsumeResult::NoMsgAvailable => return Err(RtIpcError::Argument),
+            ConsumeResult::NoUpdate => return Err(RtIpcError::Argument),
             ConsumeResult::Success => {
                 println!("client received event: {}", consumer.msg().unwrap())
             }
@@ -80,12 +80,17 @@ impl App {
             self.command.msg().clone_from(cmd);
             self.command.force_push();
 
-
             loop {
                 match self.response.pop() {
                     ConsumeResult::Error => panic!(),
-                    ConsumeResult::NoMsgAvailable => { thread::sleep(pause); continue; },
-                    ConsumeResult::NoUpdate =>  { thread::sleep(pause); continue; },
+                    ConsumeResult::NoMsgAvailable => {
+                        thread::sleep(pause);
+                        continue;
+                    }
+                    ConsumeResult::NoUpdate => {
+                        thread::sleep(pause);
+                        continue;
+                    }
                     ConsumeResult::Success => {}
                     ConsumeResult::MsgsDiscarded => {}
                 };
@@ -140,23 +145,23 @@ fn main() {
             add_msgs: 0,
             msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
             eventfd: false,
-            info:  b"rpc response".to_vec(),
+            info: b"rpc response".to_vec(),
         },
         ChannelParam {
             add_msgs: 10,
             msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
             eventfd: true,
-            info:  b"rpc event".to_vec(),
+            info: b"rpc event".to_vec(),
         },
     ];
 
     let vparam = VectorParam {
         producers: c2s_channels.to_vec(),
         consumers: s2c_channels.to_vec(),
-        info:  b"rpc example".to_vec(),
+        info: b"rpc example".to_vec(),
     };
     let vec = client_connect("rtipc.sock", vparam).unwrap();
     let mut app = App::new(vec);
-     thread::sleep(time::Duration::from_millis(100));
+    thread::sleep(time::Duration::from_millis(100));
     app.run(&commands);
 }

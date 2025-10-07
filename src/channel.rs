@@ -274,7 +274,6 @@ impl ChannelVector {
         let shm = SharedMemory::from_fd(shmfd)?;
         let vparam = parse_request_message(req.msg())?;
 
-
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
 

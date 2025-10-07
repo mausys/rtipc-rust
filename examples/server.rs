@@ -1,9 +1,8 @@
 use nix::sys::socket::Backlog;
 
 use std::fmt;
-use std::{thread, time};
 use std::time::Duration;
-
+use std::{thread, time};
 
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
@@ -31,14 +30,15 @@ struct App {
     event: Producer<MsgEvent>,
 }
 
-
-fn print_vector(vec: &ChannelVector)
-{
-    let vec_info  = str::from_utf8(vec.info()).unwrap();
+fn print_vector(vec: &ChannelVector) {
+    let vec_info = str::from_utf8(vec.info()).unwrap();
     let cmd_info = str::from_utf8(vec.consumer_info(0).unwrap()).unwrap();
     let rsp_info = str::from_utf8(vec.producer_info(0).unwrap()).unwrap();
     let evt_info = str::from_utf8(vec.producer_info(1).unwrap()).unwrap();
-    println!("server received request vec={} cmd={} rsp={} evt={}", vec_info, cmd_info, rsp_info, evt_info);
+    println!(
+        "server received request vec={} cmd={} rsp={} evt={}",
+        vec_info, cmd_info, rsp_info, evt_info
+    );
 }
 
 impl App {

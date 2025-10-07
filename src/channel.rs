@@ -114,7 +114,7 @@ impl<T> Producer<T> {
         let result = self.queue.force_push();
 
         if result == ProduceForceResult::Success {
-            self.eventfd.as_ref().map(|ref fd| fd.write(1));
+            self.eventfd.as_ref().map(|fd| fd.write(1));
         }
 
         result
@@ -123,7 +123,7 @@ impl<T> Producer<T> {
     pub fn try_push(&mut self) -> ProduceTryResult {
         let result = self.queue.try_push();
         if result == ProduceTryResult::Success {
-            self.eventfd.as_ref().map(|ref fd| fd.write(1));
+            self.eventfd.as_ref().map(|fd| fd.write(1));
         }
         result
     }
@@ -163,9 +163,8 @@ impl<T> Consumer<T> {
 
     pub fn pop(&mut self) -> ConsumeResult {
         if let Some(eventfd) = self.eventfd.as_ref() {
-            match eventfd.read() {
-                Err(_) => return ConsumeResult::NoMsgAvailable,
-                Ok(_) => {}
+            if eventfd.read().is_err() {
+                return ConsumeResult::NoMsgAvailable;
             }
         }
 
@@ -225,7 +224,7 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ProducerChannel::new(&param, chunk, eventfd)?;
+            let channel = ProducerChannel::new(param, chunk, eventfd)?;
             channel.init();
 
             producers.push(Some(channel));
@@ -244,7 +243,7 @@ impl ChannelVector {
             let shm_size = param.shm_size();
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ConsumerChannel::new(&param, chunk, eventfd)?;
+            let channel = ConsumerChannel::new(param, chunk, eventfd)?;
             channel.init();
 
             consumers.push(Some(channel));
@@ -252,7 +251,7 @@ impl ChannelVector {
             shm_offset += shm_size.get();
         }
 
-        let msg = create_request_message(&vparam);
+        let msg = create_request_message(vparam);
 
         Ok((
             Self {

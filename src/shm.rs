@@ -30,11 +30,6 @@ pub(crate) struct Span {
     pub size: NonZeroUsize,
 }
 
-impl Span {
-    pub(crate) fn end(&self) -> usize {
-        self.offset + self.size.get()
-    }
-}
 
 pub(crate) struct Chunk {
     shm: Arc<SharedMemory>,

@@ -18,7 +18,7 @@ pub(crate) fn eventfd() -> Result<EventFd> {
 }
 
 fn fd_link(fd: RawFd) -> Result<String> {
-    let path = format!("{}{}", PROC_SELF_FD, fd);
+    let path = format!("{PROC_SELF_FD}{fd}");
     let oslink = readlink(path.as_str())?;
     let link = oslink.to_str().ok_or(Errno::EBADF)?.to_owned();
     Ok(link)

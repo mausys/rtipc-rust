@@ -87,13 +87,13 @@ impl ConsumerChannel {
     }
 }
 
-pub struct Producer<T> {
+pub struct Producer<T: Copy> {
     queue: ProducerQueue,
     eventfd: Option<EventFd>,
     cache: Option<Box<T>>,
 }
 
-impl<T> Producer<T> {
+impl<T: Copy> Producer<T> {
     fn try_from(channel: ProducerChannel) -> Option<Self> {
         if size_of::<T>() > channel.msg_size().get() {
             return None;
@@ -115,6 +115,10 @@ impl<T> Producer<T> {
     }
 
     pub fn force_push(&mut self) -> ProduceForceResult {
+        if let Some(ref cache) = self.cache {
+            *self.msg() = *cache.clone();
+        }
+
         let result = self.queue.force_push();
 
         if result == ProduceForceResult::Success {
@@ -125,6 +129,13 @@ impl<T> Producer<T> {
     }
 
     pub fn try_push(&mut self) -> ProduceTryResult {
+        if let Some(ref cache) = self.cache {
+            if self.queue.full() {
+                return ProduceTryResult::Fail;
+            }
+            *self.msg() = *cache.clone();
+        }
+
         let result = self.queue.try_push();
         if result == ProduceTryResult::Success {
             self.eventfd.as_ref().map(|fd| fd.write(1));
@@ -139,15 +150,27 @@ impl<T> Producer<T> {
     pub fn take_eventfd(&mut self) -> Option<EventFd> {
         self.eventfd.take()
     }
+
+    pub fn enable_cache(&mut self) {
+        if self.cache.is_none() {
+            self.cache = Some(Box::new(*self.msg()));
+        }
+    }
+
+    pub fn disable_cache(&mut self) {
+        if let Some(cache) = self.cache.take() {
+              *self.msg() = *cache;
+        }
+    }
 }
 
-pub struct Consumer<T> {
+pub struct Consumer<T: Copy> {
     queue: ConsumerQueue,
     eventfd: Option<EventFd>,
     _type: PhantomData<T>,
 }
 
-impl<T> Consumer<T> {
+impl<T: Copy> Consumer<T> {
     fn try_from(channel: ConsumerChannel) -> Option<Self> {
         if size_of::<T>() > channel.msg_size().get() {
             return None;
@@ -349,12 +372,12 @@ impl ChannelVector {
         self.producers.get(index)?.as_ref().map(|c| c.info())
     }
 
-    pub fn take_consumer<T>(&mut self, index: usize) -> Option<Consumer<T>> {
+    pub fn take_consumer<T: Copy>(&mut self, index: usize) -> Option<Consumer<T>> {
         let channel = self.consumers.get_mut(index)?.take()?;
         Consumer::try_from(channel)
     }
 
-    pub fn take_producer<T>(&mut self, index: usize) -> Option<Producer<T>> {
+    pub fn take_producer<T: Copy>(&mut self, index: usize) -> Option<Producer<T>> {
         let channel = self.producers.get_mut(index)?.take()?;
         Producer::try_from(channel)
     }

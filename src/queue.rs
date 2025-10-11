@@ -255,6 +255,32 @@ impl ProducerQueue {
         }
     }
 
+    pub(crate) fn full(&self) -> bool {
+        if self.head == INVALID_INDEX {
+            // queue is empty
+            return false;
+        }
+
+        let tail = self.queue.tail_load();
+
+        if !self.queue.is_valid_index(tail & INDEX_MASK) {
+            // ERROR, queue is in invalid state, let producer move on and handle error on push
+            return false;
+        }
+
+        if self.overrun != INVALID_INDEX {
+            let consumed: bool = (tail & CONSUMED_FLAG) != 0;
+            /* overrun mean the producer forced_push a message on a full queue
+               queue has space if consumer moved on */
+            !consumed
+        } else {
+            let next = self.chain[self.current as usize];
+            let full: bool = next == (tail & INDEX_MASK);
+
+            !full
+        }
+    }
+
     /* inserts the next message into the queue and
      * if the queue is full, discard the last message that is not
      * used by consumer. Returns pointer to new message */
@@ -278,8 +304,6 @@ impl ProducerQueue {
         }
 
         let consumed: bool = (tail & CONSUMED_FLAG) != 0;
-
-        let full: bool = next == (tail & INDEX_MASK);
 
         if self.overrun != INVALID_INDEX {
             /* we overran the consumer and moved the tail, use overran message as
@@ -307,6 +331,8 @@ impl ProducerQueue {
                 }
             }
         } else {
+            let full: bool = next == (tail & INDEX_MASK);
+
             /* no previous overrun, use next or after next message */
             if !full {
                 /* message queue not full, simply use next */
@@ -353,11 +379,9 @@ impl ProducerQueue {
             return ProduceTryResult::Error;
         }
 
-        let consumed = (tail & CONSUMED_FLAG) != 0;
-
-        let full = next == (tail & INDEX_MASK);
-
         if self.overrun != INVALID_INDEX {
+            let consumed = (tail & CONSUMED_FLAG) != 0;
+
             if consumed {
                 /* consumer released overrun message, so we can use it */
                 /* requeue overrun */
@@ -370,6 +394,8 @@ impl ProducerQueue {
                 return ProduceTryResult::Success;
             }
         } else {
+            let full = next == (tail & INDEX_MASK);
+
             /* no previous overrun, use next or after next message */
             if !full {
                 self.enqueue_msg();

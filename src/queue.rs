@@ -271,7 +271,7 @@ impl ProducerQueue {
         if self.overrun != INVALID_INDEX {
             let consumed: bool = (tail & CONSUMED_FLAG) != 0;
             /* overrun mean the producer forced_push a message on a full queue
-               queue has space if consumer moved on */
+            queue has space if consumer moved on */
             !consumed
         } else {
             let next = self.chain[self.current as usize];

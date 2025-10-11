@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     marker::PhantomData,
     mem::size_of,
     num::NonZeroUsize,
@@ -89,7 +90,7 @@ impl ConsumerChannel {
 pub struct Producer<T> {
     queue: ProducerQueue,
     eventfd: Option<EventFd>,
-    _type: PhantomData<T>,
+    cache: Option<Box<T>>,
 }
 
 impl<T> Producer<T> {
@@ -101,13 +102,16 @@ impl<T> Producer<T> {
         Some(Self {
             queue: channel.queue,
             eventfd: channel.eventfd,
-            _type: PhantomData,
+            cache: None,
         })
     }
 
     pub fn msg(&mut self) -> &mut T {
-        let ptr: *mut T = self.queue.current().cast();
-        unsafe { &mut *ptr }
+        if let Some(ref mut cache) = self.cache {
+            cache.borrow_mut()
+        } else {
+            unsafe { &mut *self.queue.current().cast::<T>() }
+        }
     }
 
     pub fn force_push(&mut self) -> ProduceForceResult {

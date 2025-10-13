@@ -22,11 +22,11 @@ pub enum ConsumeResult {
     QueueError,
 
     /// No message has been produced yet.
-    /// current_msg will return None
+    /// current_message will return None
     NoMessage,
 
     /// No new message has been produced, but an old one is still available.
-    /// current_msg will return old message
+    /// current_message will return old message
     NoNewMessage,
 
     /// A new message is available.
@@ -72,16 +72,16 @@ struct Queue {
 impl Queue {
     pub fn new(
         chunk: Chunk,
-        add_msgs: usize,
-        msg_size: NonZeroUsize,
+        additional_messages: usize,
+        message_size: NonZeroUsize,
     ) -> Result<Self, ShmPointerError> {
-        let queue_len = add_msgs + MIN_MSGS;
+        let queue_len = additional_messages + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
-        let msg_size = NonZeroUsize::new(cacheline_aligned(msg_size.get())).unwrap();
+        let message_size = NonZeroUsize::new(cacheline_aligned(message_size.get())).unwrap();
 
         let mut offset_index = 0;
-        let mut offset_msg = cacheline_aligned(queue_size);
+        let mut offset = cacheline_aligned(queue_size);
 
         let tail: *mut Index = chunk.get_ptr(offset_index)?;
         offset_index += index_size;
@@ -90,29 +90,29 @@ impl Queue {
         offset_index += index_size;
 
         let mut chain: Vec<*mut Index> = Vec::with_capacity(queue_len);
-        let mut msgs: Vec<*mut ()> = Vec::with_capacity(queue_len);
+        let mut messages: Vec<*mut ()> = Vec::with_capacity(queue_len);
 
         for _ in 0..queue_len {
             let index: *mut Index = chunk.get_ptr(offset_index)?;
-            let msg: *mut () = chunk.get_span_ptr(&Span {
-                offset: offset_msg,
-                size: msg_size,
+            let message: *mut () = chunk.get_span_ptr(&Span {
+                offset,
+                size: message_size,
             })?;
 
             chain.push(index);
-            msgs.push(msg);
+            messages.push(message);
 
             offset_index += index_size;
-            offset_msg += msg_size.get();
+            offset += message_size.get();
         }
 
         Ok(Self {
             _chunk: chunk,
-            message_size: msg_size,
+            message_size,
             head,
             tail,
             chain,
-            messages: msgs,
+            messages,
         })
     }
 
@@ -440,10 +440,10 @@ pub struct ConsumerQueue {
 impl ConsumerQueue {
     pub(crate) fn new(
         chunk: Chunk,
-        add_msgs: usize,
-        msg_size: NonZeroUsize,
+        additional_messages: usize,
+        message_size: NonZeroUsize,
     ) -> Result<Self, ShmPointerError> {
-        let queue = Queue::new(chunk, add_msgs, msg_size)?;
+        let queue = Queue::new(chunk, additional_messages, message_size)?;
         Ok(Self { queue, current: 0 })
     }
 

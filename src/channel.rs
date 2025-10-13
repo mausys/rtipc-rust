@@ -12,7 +12,7 @@ use crate::{
     calc_shm_size,
     error::*,
     fd::{eventfd, into_eventfd},
-    protocol::{create_request_message, parse_request_message},
+    protocol::{create_request_message, parse_request},
     queue::{ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue},
     request::Request,
     shm::{Chunk, SharedMemory},
@@ -78,7 +78,7 @@ impl ConsumerChannel {
         self.queue.init();
     }
 
-    pub(crate) fn msg_size(&self) -> NonZeroUsize {
+    pub(crate) fn message_size(&self) -> NonZeroUsize {
         self.queue.message_size()
     }
 
@@ -172,7 +172,7 @@ pub struct Consumer<T: Copy> {
 
 impl<T: Copy> Consumer<T> {
     fn try_from(channel: ConsumerChannel) -> Option<Self> {
-        if size_of::<T>() > channel.msg_size().get() {
+        if size_of::<T>() > channel.message_size().get() {
             return None;
         }
 
@@ -302,7 +302,7 @@ impl ChannelVector {
             .take()
             .ok_or(ProcessRequestError::MissingFileDescriptor)?;
         let shm = SharedMemory::from_fd(shmfd)?;
-        let vparam = parse_request_message(req.msg())?;
+        let vparam = parse_request(req.content())?;
 
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());

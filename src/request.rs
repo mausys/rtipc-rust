@@ -11,21 +11,21 @@ use nix::Result;
 const MAX_FD: usize = 253;
 
 pub(crate) struct Request {
-    msg: Vec<u8>,
+    content: Vec<u8>,
     fds: Vec<RawFd>,
     cleanup: bool,
 }
 
 impl Request {
-    pub(crate) fn new(msg: Vec<u8>, fds: Vec<RawFd>) -> Self {
+    pub(crate) fn new(content: Vec<u8>, fds: Vec<RawFd>) -> Self {
         Self {
-            msg,
+            content,
             fds,
             cleanup: false,
         }
     }
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
-        let iov = [IoSlice::new(&self.msg)];
+        let iov = [IoSlice::new(&self.content)];
 
         let cmsg = ControlMessage::ScmRights(self.fds.as_slice());
 
@@ -44,8 +44,8 @@ impl Request {
             return Err(Errno::ENOMSG);
         }
 
-        let mut msg: Vec<u8> = vec![0; recv_empty.bytes];
-        let mut iov = [IoSliceMut::new(msg.as_mut_slice())];
+        let mut content: Vec<u8> = vec![0; recv_empty.bytes];
+        let mut iov = [IoSliceMut::new(content.as_mut_slice())];
         let mut cmsg = cmsg_space!([RawFd; MAX_FD]);
 
         let recv_data = recvmsg::<()>(
@@ -61,14 +61,14 @@ impl Request {
         };
 
         Ok(Self {
-            msg,
+            content,
             fds,
             cleanup: true,
         })
     }
 
-    pub(crate) fn msg(&self) -> &Vec<u8> {
-        &self.msg
+    pub(crate) fn content(&self) -> &Vec<u8> {
+        &self.content
     }
 
     pub(crate) fn take_fds(&mut self) -> Vec<Option<OwnedFd>> {

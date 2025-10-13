@@ -12,8 +12,8 @@ use crate::{
 
 #[repr(C)]
 struct ChannelEntry {
-    add_msgs: u32,
-    msg_size: u32,
+    additional_messages: u32,
+    message_size: u32,
     eventfd: u32,
     info_size: u32,
 }
@@ -21,8 +21,8 @@ struct ChannelEntry {
 impl ChannelEntry {
     fn from_param(param: &ChannelParam) -> Self {
         Self {
-            add_msgs: param.additional_messages as u32,
-            msg_size: param.message_size.get() as u32,
+            additional_messages: param.additional_messages as u32,
+            message_size: param.message_size.get() as u32,
             eventfd: param.eventfd as u32,
             info_size: param.info.len() as u32,
         }
@@ -32,29 +32,29 @@ impl ChannelEntry {
 impl ChannelEntry {
     pub(crate) fn to_param(
         &self,
-        msg: &[u8],
+        message: &[u8],
         info_offset: usize,
     ) -> Result<ChannelParam, RequestPointerError> {
         let info_size = self.info_size as usize;
 
-        if info_offset + info_size > msg.len() {
+        if info_offset + info_size > message.len() {
             return Err(RequestPointerError::OutOfBounds);
         }
 
-        if self.msg_size == 0 {
+        if self.message_size == 0 {
             return Err(RequestPointerError::OutOfBounds);
         }
 
-        let msg_size = NonZeroUsize::new(self.msg_size as usize).unwrap();
+        let message_size = NonZeroUsize::new(self.message_size as usize).unwrap();
 
         let info = match info_size {
             0 => Vec::with_capacity(0),
-            _ => msg[info_offset..info_offset + info_size].to_vec(),
+            _ => message[info_offset..info_offset + info_size].to_vec(),
         };
 
         Ok(ChannelParam {
-            additional_messages: self.add_msgs as usize,
-            message_size: msg_size,
+            additional_messages: self.additional_messages as usize,
+            message_size,
             info,
             eventfd: self.eventfd != 0,
         })
@@ -115,12 +115,12 @@ impl Layout {
     }
 }
 
-fn msg_get_ptr<T>(msg: &[u8], offset: usize) -> Result<*const T, RequestPointerError> {
-    if offset + size_of::<T>() > msg.len() {
+fn request_get_ptr<T>(request: &[u8], offset: usize) -> Result<*const T, RequestPointerError> {
+    if offset + size_of::<T>() > request.len() {
         return Err(RequestPointerError::OutOfBounds);
     }
 
-    let ptr = unsafe { msg.as_ptr().byte_add(offset) as *const T };
+    let ptr = unsafe { request.as_ptr().byte_add(offset) as *const T };
 
     if !ptr.is_aligned() {
         return Err(RequestPointerError::Misalignment);
@@ -129,18 +129,18 @@ fn msg_get_ptr<T>(msg: &[u8], offset: usize) -> Result<*const T, RequestPointerE
     Ok(ptr)
 }
 
-fn msg_read<T>(msg: &[u8], offset: usize) -> Result<T, RequestPointerError> {
-    let ptr = msg_get_ptr::<T>(msg, offset)?;
+fn request_read<T>(request: &[u8], offset: usize) -> Result<T, RequestPointerError> {
+    let ptr = request_get_ptr::<T>(request, offset)?;
 
     Ok(unsafe { ptr.read() })
 }
 
-fn msg_get_mut_ptr<T>(msg: &mut [u8], offset: usize) -> Result<*mut T, RequestPointerError> {
-    if offset + size_of::<T>() > msg.len() {
+fn req_get_mut_ptr<T>(request: &mut [u8], offset: usize) -> Result<*mut T, RequestPointerError> {
+    if offset + size_of::<T>() > request.len() {
         return Err(RequestPointerError::OutOfBounds);
     }
 
-    let ptr = unsafe { msg.as_mut_ptr().byte_add(offset) as *mut T };
+    let ptr = unsafe { request.as_mut_ptr().byte_add(offset) as *mut T };
 
     if !ptr.is_aligned() {
         return Err(RequestPointerError::Misalignment);
@@ -149,12 +149,12 @@ fn msg_get_mut_ptr<T>(msg: &mut [u8], offset: usize) -> Result<*mut T, RequestPo
     Ok(ptr)
 }
 
-fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), RequestPointerError> {
-    if offset + size_of::<T>() > msg.len() {
+fn request_write<T: Copy>(request: &[u8], offset: usize, val: &T) -> Result<(), RequestPointerError> {
+    if offset + size_of::<T>() > request.len() {
         return Err(RequestPointerError::OutOfBounds);
     }
 
-    let ptr = unsafe { msg.as_ptr().byte_add(offset) as *mut T };
+    let ptr = unsafe { request.as_ptr().byte_add(offset) as *mut T };
 
     if !ptr.is_aligned() {
         return Err(RequestPointerError::Misalignment);
@@ -168,7 +168,7 @@ fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), RequestP
 }
 
 struct ChannelTable<'a> {
-    msg: &'a [u8],
+    request: &'a [u8],
     consumers: &'a [ChannelEntry],
     producers: &'a [ChannelEntry],
     vector_info_offset: usize,
@@ -176,8 +176,8 @@ struct ChannelTable<'a> {
 }
 
 impl<'a> ChannelTable<'a> {
-    pub(crate) fn from_msg(msg: &'a [u8]) -> Result<Self, ProcessRequestError> {
-        let header = msg
+    pub(crate) fn from_request(request: &'a [u8]) -> Result<Self, ProcessRequestError> {
+        let header = request
             .get(0..HEADER_SIZE)
             .ok_or(ProcessRequestError::RequestPointerError(
                 RequestPointerError::OutOfBounds,
@@ -188,26 +188,26 @@ impl<'a> ChannelTable<'a> {
         let mut offset: usize = HEADER_SIZE;
         offset = mem_align(offset, align_of::<u32>());
 
-        let vector_info_size = msg_read::<u32>(msg, offset)? as usize;
+        let vector_info_size = request_read::<u32>(request, offset)? as usize;
         offset += size_of::<u32>();
 
-        let num_consumers = msg_read::<u32>(msg, offset)? as usize;
+        let num_consumers = request_read::<u32>(request, offset)? as usize;
         offset += size_of::<u32>();
 
-        let num_producers = msg_read::<u32>(msg, offset)? as usize;
+        let num_producers = request_read::<u32>(request, offset)? as usize;
         offset += size_of::<u32>();
 
         offset = mem_align(offset, align_of::<ChannelEntry>());
 
-        let consumers_ptr = msg_get_ptr::<ChannelEntry>(msg, offset)?;
+        let consumers_ptr = request_get_ptr::<ChannelEntry>(request, offset)?;
         offset += num_consumers * size_of::<ChannelEntry>();
 
-        let producers_ptr = msg_get_ptr::<ChannelEntry>(msg, offset)?;
+        let producers_ptr = request_get_ptr::<ChannelEntry>(request, offset)?;
         offset += num_producers * size_of::<ChannelEntry>();
 
         let vector_info_offset = offset;
 
-        if vector_info_offset + vector_info_size > msg.len() {
+        if vector_info_offset + vector_info_size > request.len() {
             return Err(ProcessRequestError::RequestPointerError(
                 RequestPointerError::OutOfBounds,
             ));
@@ -217,7 +217,7 @@ impl<'a> ChannelTable<'a> {
         let producers = unsafe { from_raw_parts(producers_ptr, num_producers) };
 
         Ok(ChannelTable {
-            msg,
+            request,
             consumers,
             producers,
             vector_info_offset,
@@ -231,16 +231,16 @@ impl<'a> ChannelTable<'a> {
 
         let mut channel_info_offset = self.vector_info_offset + self.vector_info_size;
 
-        let info: Vec<u8> = self.msg[self.vector_info_offset..channel_info_offset].to_vec();
+        let info: Vec<u8> = self.request[self.vector_info_offset..channel_info_offset].to_vec();
 
         for entry in self.consumers {
-            let param = entry.to_param(self.msg, channel_info_offset)?;
+            let param = entry.to_param(self.request, channel_info_offset)?;
             channel_info_offset += param.info.len();
             consumers.push(param);
         }
 
         for entry in self.producers {
-            let param = entry.to_param(self.msg, channel_info_offset)?;
+            let param = entry.to_param(self.request, channel_info_offset)?;
             channel_info_offset += param.info.len();
             producers.push(param);
         }
@@ -253,49 +253,49 @@ impl<'a> ChannelTable<'a> {
     }
 }
 
-pub(crate) fn parse_request_message(msg: &[u8]) -> Result<VectorParam, ProcessRequestError> {
-    let table = ChannelTable::from_msg(msg)?;
+pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessRequestError> {
+    let table = ChannelTable::from_request(request)?;
     table.to_params()
 }
 
 pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
     let layout = Layout::calc(vparam);
 
-    let mut msg: Vec<u8> = vec![0; layout.size];
+    let mut request: Vec<u8> = vec![0; layout.size];
 
-    write_header(msg.as_mut_slice());
+    write_header(request.as_mut_slice());
 
-    msg_write(
-        msg.as_mut_slice(),
+    request_write(
+        request.as_mut_slice(),
         layout.vector_info_offset,
         &(vparam.info.len() as u32),
     )
     .unwrap();
 
-    msg_write(
-        msg.as_mut_slice(),
+    request_write(
+        request.as_mut_slice(),
         layout.num_channels[0],
         &(vparam.producers.len() as u32),
     )
     .unwrap();
 
-    msg_write(
-        msg.as_mut_slice(),
+    request_write(
+        request.as_mut_slice(),
         layout.num_channels[1],
         &(vparam.consumers.len() as u32),
     )
     .unwrap();
 
     let producers_ptr =
-        msg_get_mut_ptr::<ChannelEntry>(msg.as_mut_slice(), layout.channels[0]).unwrap();
+        req_get_mut_ptr::<ChannelEntry>(request.as_mut_slice(), layout.channels[0]).unwrap();
 
     let consumers_ptr =
-        msg_get_mut_ptr::<ChannelEntry>(msg.as_mut_slice(), layout.channels[1]).unwrap();
+        req_get_mut_ptr::<ChannelEntry>(request.as_mut_slice(), layout.channels[1]).unwrap();
 
     let producer_entries = unsafe { from_raw_parts_mut(producers_ptr, vparam.producers.len()) };
     let consumer_entries = unsafe { from_raw_parts_mut(consumers_ptr, vparam.consumers.len()) };
 
-    msg[layout.vector_info..layout.vector_info + vparam.info.len()]
+    request[layout.vector_info..layout.vector_info + vparam.info.len()]
         .clone_from_slice(vparam.info.as_slice());
 
     let mut info_offset = layout.channel_infos;
@@ -304,7 +304,7 @@ pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
         producer_entries[index] = ChannelEntry::from_param(param);
 
         if !param.info.is_empty() {
-            msg[info_offset..info_offset + param.info.len()]
+            request[info_offset..info_offset + param.info.len()]
                 .clone_from_slice(param.info.as_slice());
             info_offset += param.info.len();
         }
@@ -314,11 +314,11 @@ pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
         consumer_entries[index] = ChannelEntry::from_param(param);
 
         if !param.info.is_empty() {
-            msg[info_offset..info_offset + param.info.len()]
+            request[info_offset..info_offset + param.info.len()]
                 .clone_from_slice(param.info.as_slice());
             info_offset += param.info.len();
         }
     }
 
-    msg
+    request
 }

@@ -5,6 +5,8 @@ use std::thread::JoinHandle;
 use std::time;
 use std::time::Duration;
 
+use nix::errno::Errno;
+
 use rtipc::client_connect;
 use rtipc::error::*;
 use rtipc::ChannelVector;
@@ -12,7 +14,6 @@ use rtipc::ConsumeResult;
 use rtipc::Consumer;
 use rtipc::Producer;
 use rtipc::{ChannelParam, VectorParam};
-
 
 use crate::common::wait_pollin;
 use crate::common::CommandId;
@@ -24,7 +25,7 @@ mod common;
 
 static STOP_EVENT_LISTERNER: AtomicBool = AtomicBool::new(false);
 
-fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), RtIpcError> {
+fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), Errno> {
     while !STOP_EVENT_LISTERNER.load(Ordering::Relaxed) {
         let eventfd = consumer.eventfd().unwrap();
         let ev = wait_pollin(eventfd, Duration::from_millis(10))?;
@@ -34,14 +35,20 @@ fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), RtIpcError> {
         }
 
         match consumer.pop() {
-            ConsumeResult::Error => panic!(),
-            ConsumeResult::NoMsgAvailable => return Err(RtIpcError::Argument),
-            ConsumeResult::NoUpdate => return Err(RtIpcError::Argument),
+            ConsumeResult::QueueError => panic!(),
+            ConsumeResult::NoMessage => return Err(Errno::EBADMSG),
+            ConsumeResult::NoNewMessage => return Err(Errno::EBADMSG),
             ConsumeResult::Success => {
-                println!("client received event: {}", consumer.msg().unwrap())
+                println!(
+                    "client received event: {}",
+                    consumer.current_message().unwrap()
+                )
             }
-            ConsumeResult::MsgsDiscarded => {
-                println!("client received event: {}", consumer.msg().unwrap())
+            ConsumeResult::SuccessMessagesDiscarded => {
+                println!(
+                    "client received event: {}",
+                    consumer.current_message().unwrap()
+                )
             }
         };
     }
@@ -52,7 +59,7 @@ fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), RtIpcError> {
 struct App {
     command: Producer<MsgCommand>,
     response: Consumer<MsgResponse>,
-    event_listener: Option<JoinHandle<Result<(), RtIpcError>>>,
+    event_listener: Option<JoinHandle<Result<(), Errno>>>,
 }
 
 impl App {
@@ -74,25 +81,28 @@ impl App {
         let pause = time::Duration::from_millis(10);
 
         for cmd in cmds {
-            self.command.msg().clone_from(cmd);
+            self.command.current_message().clone_from(cmd);
             self.command.force_push();
 
             loop {
                 match self.response.pop() {
-                    ConsumeResult::Error => panic!(),
-                    ConsumeResult::NoMsgAvailable => {
+                    ConsumeResult::QueueError => panic!(),
+                    ConsumeResult::NoMessage => {
                         thread::sleep(pause);
                         continue;
                     }
-                    ConsumeResult::NoUpdate => {
+                    ConsumeResult::NoNewMessage => {
                         thread::sleep(pause);
                         continue;
                     }
                     ConsumeResult::Success => {}
-                    ConsumeResult::MsgsDiscarded => {}
+                    ConsumeResult::SuccessMessagesDiscarded => {}
                 };
 
-                println!("client received response: {}", self.response.msg().unwrap());
+                println!(
+                    "client received response: {}",
+                    self.response.current_message().unwrap()
+                );
                 break;
             }
         }
@@ -131,22 +141,22 @@ fn main() {
     ];
 
     let c2s_channels: [ChannelParam; 1] = [ChannelParam {
-        add_msgs: 0,
-        msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
+        additional_messages: 0,
+        message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
         eventfd: true,
         info: b"rpc command".to_vec(),
     }];
 
     let s2c_channels: [ChannelParam; 2] = [
         ChannelParam {
-            add_msgs: 0,
-            msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
+            additional_messages: 0,
+            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
             eventfd: false,
             info: b"rpc response".to_vec(),
         },
         ChannelParam {
-            add_msgs: 10,
-            msg_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
+            additional_messages: 10,
+            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
             eventfd: true,
             info: b"rpc event".to_vec(),
         },

@@ -36,7 +36,6 @@ impl Request {
         let recv_empty = recvmsg::<()>(
             socket,
             &mut [] as &mut [IoSliceMut],
-            //iov.as_mut_slice(),
             None,
             MsgFlags::union(MsgFlags::MSG_PEEK, MsgFlags::MSG_TRUNC),
         )?;

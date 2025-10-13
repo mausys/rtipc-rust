@@ -30,8 +30,8 @@ impl ProducerChannel {
         param: &ChannelParam,
         chunk: Chunk,
         eventfd: Option<EventFd>,
-    ) -> Result<Self, ShmError> {
-        let queue = ProducerQueue::new(chunk, param.add_msgs, param.msg_size)?;
+    ) -> Result<Self, ShmPointerError> {
+        let queue = ProducerQueue::new(chunk, param.additional_messages, param.message_size)?;
 
         Ok(Self {
             queue,
@@ -45,7 +45,7 @@ impl ProducerChannel {
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
-        self.queue.msg_size()
+        self.queue.message_size()
     }
 
     pub(crate) fn info(&self) -> &Vec<u8> {
@@ -64,8 +64,8 @@ impl ConsumerChannel {
         param: &ChannelParam,
         chunk: Chunk,
         eventfd: Option<EventFd>,
-    ) -> Result<Self, ShmError> {
-        let queue = ConsumerQueue::new(chunk, param.add_msgs, param.msg_size)?;
+    ) -> Result<Self, ShmPointerError> {
+        let queue = ConsumerQueue::new(chunk, param.additional_messages, param.message_size)?;
 
         Ok(Self {
             queue,
@@ -79,7 +79,7 @@ impl ConsumerChannel {
     }
 
     pub(crate) fn msg_size(&self) -> NonZeroUsize {
-        self.queue.msg_size()
+        self.queue.message_size()
     }
 
     pub fn info(&self) -> &Vec<u8> {
@@ -106,17 +106,17 @@ impl<T: Copy> Producer<T> {
         })
     }
 
-    pub fn msg(&mut self) -> &mut T {
+    pub fn current_message(&mut self) -> &mut T {
         if let Some(ref mut cache) = self.cache {
             cache.borrow_mut()
         } else {
-            unsafe { &mut *self.queue.current().cast::<T>() }
+            unsafe { &mut *self.queue.current_message().cast::<T>() }
         }
     }
 
     pub fn force_push(&mut self) -> ProduceForceResult {
         if let Some(ref cache) = self.cache {
-            *self.msg() = *cache.clone();
+            *self.current_message() = *cache.clone();
         }
 
         let result = self.queue.force_push();
@@ -131,9 +131,9 @@ impl<T: Copy> Producer<T> {
     pub fn try_push(&mut self) -> ProduceTryResult {
         if let Some(ref cache) = self.cache {
             if self.queue.full() {
-                return ProduceTryResult::Fail;
+                return ProduceTryResult::QueueFull;
             }
-            *self.msg() = *cache.clone();
+            *self.current_message() = *cache.clone();
         }
 
         let result = self.queue.try_push();
@@ -153,13 +153,13 @@ impl<T: Copy> Producer<T> {
 
     pub fn enable_cache(&mut self) {
         if self.cache.is_none() {
-            self.cache = Some(Box::new(*self.msg()));
+            self.cache = Some(Box::new(*self.current_message()));
         }
     }
 
     pub fn disable_cache(&mut self) {
         if let Some(cache) = self.cache.take() {
-              *self.msg() = *cache;
+            *self.current_message() = *cache;
         }
     }
 }
@@ -183,15 +183,19 @@ impl<T: Copy> Consumer<T> {
         })
     }
 
-    pub fn msg(&self) -> Option<&T> {
-        let ptr: *const T = self.queue.current()?.cast();
+    pub fn current_message(&self) -> Option<&T> {
+        let ptr: *const T = self.queue.current_message()?.cast();
         Some(unsafe { &*ptr })
     }
 
     pub fn pop(&mut self) -> ConsumeResult {
         if let Some(eventfd) = self.eventfd.as_ref() {
             if eventfd.read().is_err() {
-                return ConsumeResult::NoMsgAvailable;
+                if self.queue.current_message().is_some() {
+                    return ConsumeResult::NoNewMessage;
+                } else {
+                    return ConsumeResult::NoMessage;
+                }
             }
         }
 
@@ -200,7 +204,7 @@ impl<T: Copy> Consumer<T> {
 
     pub fn flush(&mut self) -> ConsumeResult {
         if self.eventfd.is_some() {
-            let mut result = ConsumeResult::NoMsgAvailable;
+            let mut result = ConsumeResult::NoMessage;
             while self.pop() == ConsumeResult::Success {
                 result = ConsumeResult::Success;
             }
@@ -226,13 +230,13 @@ pub struct ChannelVector {
 }
 
 impl ChannelVector {
-    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, Request), RtIpcError> {
+    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, Request), CreateRequestError> {
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut fds = Vec::<RawFd>::new();
 
         let shm_size = NonZeroUsize::new(calc_shm_size(&vparam.producers, &vparam.consumers))
-            .ok_or(RtIpcError::Argument)?;
+            .ok_or(CreateRequestError::InvalidParam)?;
 
         let shm = SharedMemory::new(shm_size)?;
         fds.push(shm.as_raw_fd());
@@ -290,13 +294,13 @@ impl ChannelVector {
         ))
     }
 
-    pub(crate) fn from_request(mut req: Request) -> Result<Self, RtIpcError> {
+    pub(crate) fn from_request(mut req: Request) -> Result<Self, ProcessRequestError> {
         let mut fds = req.take_fds();
         let shmfd = fds
             .get_mut(0)
-            .ok_or(RtIpcError::Message(MessageError::FileDescriptor))?
+            .ok_or(ProcessRequestError::MissingFileDescriptor)?
             .take()
-            .ok_or(MessageError::FileDescriptor)?;
+            .ok_or(ProcessRequestError::MissingFileDescriptor)?;
         let shm = SharedMemory::from_fd(shmfd)?;
         let vparam = parse_request_message(req.msg())?;
 
@@ -311,9 +315,9 @@ impl ChannelVector {
             let eventfd = if param.eventfd {
                 let ofd = fds
                     .get_mut(fd_index)
-                    .ok_or(RtIpcError::Message(MessageError::FileDescriptor))?
+                    .ok_or(ProcessRequestError::MissingFileDescriptor)?
                     .take()
-                    .ok_or(MessageError::FileDescriptor)?;
+                    .ok_or(ProcessRequestError::MissingFileDescriptor)?;
 
                 let efd = into_eventfd(ofd)?;
 
@@ -337,9 +341,9 @@ impl ChannelVector {
             let eventfd = if param.eventfd {
                 let ofd = fds
                     .get_mut(fd_index)
-                    .ok_or(RtIpcError::Message(MessageError::FileDescriptor))?
+                    .ok_or(ProcessRequestError::MissingFileDescriptor)?
                     .take()
-                    .ok_or(MessageError::FileDescriptor)?;
+                    .ok_or(ProcessRequestError::MissingFileDescriptor)?;
 
                 let efd = into_eventfd(ofd)?;
 

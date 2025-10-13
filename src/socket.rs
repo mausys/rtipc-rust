@@ -1,3 +1,4 @@
+use nix::errno::Errno;
 use nix::sys::socket::{
     accept, bind, connect, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
 };
@@ -17,7 +18,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new<P: ?Sized + NixPath>(path: &P, backlog: Backlog) -> Result<Self, RtIpcError> {
+    pub fn new<P: ?Sized + NixPath>(path: &P, backlog: Backlog) -> Result<Self, Errno> {
         let addr = UnixAddr::new(path)?;
         let sockfd = socket(
             AddressFamily::Unix,
@@ -30,14 +31,17 @@ impl Server {
         Ok(Self { sockfd, addr })
     }
 
-    pub fn accept(&self) -> Result<ChannelVector, RtIpcError> {
+    pub fn accept(&self) -> Result<ChannelVector, ProcessRequestError> {
         let cfd = accept(self.sockfd.as_raw_fd())?;
         let req = Request::receive(cfd.as_raw_fd())?;
         ChannelVector::from_request(req)
     }
 }
 
-pub fn client_connect_fd(socket: RawFd, vparam: VectorParam) -> Result<ChannelVector, RtIpcError> {
+pub fn client_connect_fd(
+    socket: RawFd,
+    vparam: VectorParam,
+) -> Result<ChannelVector, CreateRequestError> {
     let (vec, req) = ChannelVector::new(&vparam)?;
 
     req.send(socket)?;
@@ -48,7 +52,7 @@ pub fn client_connect_fd(socket: RawFd, vparam: VectorParam) -> Result<ChannelVe
 pub fn client_connect<P: ?Sized + NixPath>(
     path: &P,
     vparam: VectorParam,
-) -> Result<ChannelVector, RtIpcError> {
+) -> Result<ChannelVector, CreateRequestError> {
     let sockfd = socket(
         AddressFamily::Unix,
         SockType::SeqPacket,

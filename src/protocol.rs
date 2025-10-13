@@ -21,8 +21,8 @@ struct ChannelEntry {
 impl ChannelEntry {
     fn from_param(param: &ChannelParam) -> Self {
         Self {
-            add_msgs: param.add_msgs as u32,
-            msg_size: param.msg_size.get() as u32,
+            add_msgs: param.additional_messages as u32,
+            msg_size: param.message_size.get() as u32,
             eventfd: param.eventfd as u32,
             info_size: param.info.len() as u32,
         }
@@ -34,15 +34,15 @@ impl ChannelEntry {
         &self,
         msg: &[u8],
         info_offset: usize,
-    ) -> Result<ChannelParam, RtIpcError> {
+    ) -> Result<ChannelParam, RequestPointerError> {
         let info_size = self.info_size as usize;
 
         if info_offset + info_size > msg.len() {
-            return Err(RtIpcError::Message(MessageError::Size));
+            return Err(RequestPointerError::OutOfBounds);
         }
 
         if self.msg_size == 0 {
-            return Err(RtIpcError::Message(MessageError::Size));
+            return Err(RequestPointerError::OutOfBounds);
         }
 
         let msg_size = NonZeroUsize::new(self.msg_size as usize).unwrap();
@@ -53,8 +53,8 @@ impl ChannelEntry {
         };
 
         Ok(ChannelParam {
-            add_msgs: self.add_msgs as usize,
-            msg_size,
+            additional_messages: self.add_msgs as usize,
+            message_size: msg_size,
             info,
             eventfd: self.eventfd != 0,
         })
@@ -115,49 +115,49 @@ impl Layout {
     }
 }
 
-fn msg_get_ptr<T>(msg: &[u8], offset: usize) -> Result<*const T, ShmError> {
+fn msg_get_ptr<T>(msg: &[u8], offset: usize) -> Result<*const T, RequestPointerError> {
     if offset + size_of::<T>() > msg.len() {
-        return Err(ShmError::Size);
+        return Err(RequestPointerError::OutOfBounds);
     }
 
     let ptr = unsafe { msg.as_ptr().byte_add(offset) as *const T };
 
     if !ptr.is_aligned() {
-        return Err(ShmError::Alignment);
+        return Err(RequestPointerError::Misalignment);
     }
 
     Ok(ptr)
 }
 
-fn msg_read<T>(msg: &[u8], offset: usize) -> Result<T, ShmError> {
+fn msg_read<T>(msg: &[u8], offset: usize) -> Result<T, RequestPointerError> {
     let ptr = msg_get_ptr::<T>(msg, offset)?;
 
     Ok(unsafe { ptr.read() })
 }
 
-fn msg_get_mut_ptr<T>(msg: &mut [u8], offset: usize) -> Result<*mut T, ShmError> {
+fn msg_get_mut_ptr<T>(msg: &mut [u8], offset: usize) -> Result<*mut T, RequestPointerError> {
     if offset + size_of::<T>() > msg.len() {
-        return Err(ShmError::Size);
+        return Err(RequestPointerError::OutOfBounds);
     }
 
     let ptr = unsafe { msg.as_mut_ptr().byte_add(offset) as *mut T };
 
     if !ptr.is_aligned() {
-        return Err(ShmError::Alignment);
+        return Err(RequestPointerError::Misalignment);
     }
 
     Ok(ptr)
 }
 
-fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), ShmError> {
+fn msg_write<T: Copy>(msg: &[u8], offset: usize, val: &T) -> Result<(), RequestPointerError> {
     if offset + size_of::<T>() > msg.len() {
-        return Err(ShmError::Size);
+        return Err(RequestPointerError::OutOfBounds);
     }
 
     let ptr = unsafe { msg.as_ptr().byte_add(offset) as *mut T };
 
     if !ptr.is_aligned() {
-        return Err(ShmError::Alignment);
+        return Err(RequestPointerError::Misalignment);
     }
 
     unsafe {
@@ -176,10 +176,12 @@ struct ChannelTable<'a> {
 }
 
 impl<'a> ChannelTable<'a> {
-    pub(crate) fn from_msg(msg: &'a [u8]) -> Result<Self, RtIpcError> {
+    pub(crate) fn from_msg(msg: &'a [u8]) -> Result<Self, ProcessRequestError> {
         let header = msg
             .get(0..HEADER_SIZE)
-            .ok_or(RtIpcError::Message(MessageError::Size))?;
+            .ok_or(ProcessRequestError::RequestPointerError(
+                RequestPointerError::OutOfBounds,
+            ))?;
 
         verify_header(header)?;
 
@@ -206,7 +208,9 @@ impl<'a> ChannelTable<'a> {
         let vector_info_offset = offset;
 
         if vector_info_offset + vector_info_size > msg.len() {
-            return Err(RtIpcError::Message(MessageError::Size));
+            return Err(ProcessRequestError::RequestPointerError(
+                RequestPointerError::OutOfBounds,
+            ));
         }
 
         let consumers = unsafe { from_raw_parts(consumers_ptr, num_consumers) };
@@ -221,7 +225,7 @@ impl<'a> ChannelTable<'a> {
         })
     }
 
-    fn to_params(&self) -> Result<VectorParam, RtIpcError> {
+    fn to_params(&self) -> Result<VectorParam, ProcessRequestError> {
         let mut consumers: Vec<ChannelParam> = Vec::with_capacity(self.consumers.len());
         let mut producers: Vec<ChannelParam> = Vec::with_capacity(self.producers.len());
 
@@ -249,7 +253,7 @@ impl<'a> ChannelTable<'a> {
     }
 }
 
-pub(crate) fn parse_request_message(msg: &[u8]) -> Result<VectorParam, RtIpcError> {
+pub(crate) fn parse_request_message(msg: &[u8]) -> Result<VectorParam, ProcessRequestError> {
     let table = ChannelTable::from_msg(msg)?;
     table.to_params()
 }

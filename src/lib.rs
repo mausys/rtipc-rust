@@ -33,21 +33,21 @@ pub(crate) fn mem_align(size: usize, alignment: usize) -> usize {
 
 #[derive(Clone)]
 pub struct ChannelParam {
-    pub add_msgs: usize,
-    pub msg_size: NonZeroUsize,
+    pub additional_messages: usize,
+    pub message_size: NonZeroUsize,
     pub eventfd: bool,
     pub info: Vec<u8>,
 }
 
 impl ChannelParam {
     fn data_size(&self) -> usize {
-        let n = MIN_MSGS + self.add_msgs;
+        let n = MIN_MSGS + self.additional_messages;
 
-        n * cacheline_aligned(self.msg_size.get())
+        n * cacheline_aligned(self.message_size.get())
     }
 
     fn queue_size(&self) -> usize {
-        let n = 2 + MIN_MSGS + self.add_msgs;
+        let n = 2 + MIN_MSGS + self.additional_messages;
         cacheline_aligned(n * std::mem::size_of::<Index>())
     }
 

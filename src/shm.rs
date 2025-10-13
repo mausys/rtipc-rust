@@ -30,7 +30,6 @@ pub(crate) struct Span {
     pub size: NonZeroUsize,
 }
 
-
 pub(crate) struct Chunk {
     shm: Arc<SharedMemory>,
     offset: usize,
@@ -38,16 +37,16 @@ pub(crate) struct Chunk {
 }
 
 impl Chunk {
-    pub(crate) fn get_ptr<T>(&self, offset: usize) -> Result<*mut T, ShmError> {
+    pub(crate) fn get_ptr<T>(&self, offset: usize) -> Result<*mut T, ShmPointerError> {
         let size = NonZeroUsize::new(size_of::<T>()).unwrap();
         let ptr = self.get_span_ptr(&Span { offset, size })?;
 
         Ok(ptr.cast())
     }
 
-    pub(crate) fn get_span_ptr(&self, span: &Span) -> Result<*mut (), ShmError> {
+    pub(crate) fn get_span_ptr(&self, span: &Span) -> Result<*mut (), ShmPointerError> {
         if span.offset + span.size.get() > self.size.get() {
-            return Err(ShmError::Size);
+            return Err(ShmPointerError::OutOfBounds);
         }
 
         let ptr: *mut () = unsafe { self.shm.ptr.byte_add(self.offset + span.offset) };
@@ -65,9 +64,9 @@ pub struct SharedMemory {
 }
 
 impl SharedMemory {
-    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, ShmError> {
+    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, ShmPointerError> {
         if offset + size.get() > self.size.get() {
-            return Err(ShmError::Size);
+            return Err(ShmPointerError::OutOfBounds);
         }
 
         Ok(Chunk {

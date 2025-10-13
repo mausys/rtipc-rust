@@ -18,38 +18,63 @@ const INDEX_MASK: Index = !ORIGIN_MASK;
 
 #[derive(PartialEq, Eq)]
 pub enum ConsumeResult {
-    Error,
-    NoMsgAvailable,
-    NoUpdate,
+    /// An invalid index was written to shared memory (unrecoverable error).
+    QueueError,
+
+    /// No message has been produced yet.
+    /// current_msg will return None
+    NoMessage,
+
+    /// No new message has been produced, but an old one is still available.
+    /// current_msg will return old message
+    NoNewMessage,
+
+    /// A new message is available.
     Success,
-    MsgsDiscarded,
+
+    /// A new message is available, but one or more older messages were discarded by the producer.
+    SuccessMessagesDiscarded,
 }
 
 #[derive(PartialEq, Eq)]
 pub enum ProduceForceResult {
-    Error,
+    /// An invalid index was written to shared memory (unrecoverable error).
+    QueueError,
+
+    /// Message was successfully added.
     Success,
-    MsgDiscarded,
+
+    /// Queue was full; message was added, but the oldest message was discarded.
+    SuccessMessageDiscarded,
 }
 
 #[derive(PartialEq, Eq)]
 pub enum ProduceTryResult {
-    Error,
-    Fail,
+    /// An invalid index was written to shared memory (unrecoverable error).
+    QueueError,
+
+    /// Queue was full; message was not added.
+    QueueFull,
+
+    /// Message was successfully added.
     Success,
 }
 
 struct Queue {
     _chunk: Chunk,
-    msg_size: NonZeroUsize,
+    message_size: NonZeroUsize,
     head: *mut Index,
     tail: *mut Index,
     chain: Vec<*mut Index>,
-    msgs: Vec<*mut ()>,
+    messages: Vec<*mut ()>,
 }
 
 impl Queue {
-    pub fn new(chunk: Chunk, add_msgs: usize, msg_size: NonZeroUsize) -> Result<Self, ShmError> {
+    pub fn new(
+        chunk: Chunk,
+        add_msgs: usize,
+        msg_size: NonZeroUsize,
+    ) -> Result<Self, ShmPointerError> {
         let queue_len = add_msgs + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
@@ -83,11 +108,11 @@ impl Queue {
 
         Ok(Self {
             _chunk: chunk,
-            msg_size,
+            message_size: msg_size,
             head,
             tail,
             chain,
-            msgs,
+            messages: msgs,
         })
     }
 
@@ -100,8 +125,8 @@ impl Queue {
         self.head_store(INVALID_INDEX);
     }
 
-    pub(self) fn msg_size(&self) -> NonZeroUsize {
-        self.msg_size
+    pub(self) fn message_size(&self) -> NonZeroUsize {
+        self.message_size
     }
 
     fn tail(&self) -> &AtomicIndex {
@@ -169,10 +194,10 @@ pub struct ProducerQueue {
 impl ProducerQueue {
     pub(crate) fn new(
         chunk: Chunk,
-        add_msgs: usize,
-        msg_size: NonZeroUsize,
-    ) -> Result<Self, ShmError> {
-        let queue = Queue::new(chunk, add_msgs, msg_size)?;
+        additional_messages: usize,
+        message_size: NonZeroUsize,
+    ) -> Result<Self, ShmPointerError> {
+        let queue = Queue::new(chunk, additional_messages, message_size)?;
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
         let last = queue_len - 1;
@@ -198,12 +223,12 @@ impl ProducerQueue {
         self.queue.init();
     }
 
-    pub(crate) fn msg_size(&self) -> NonZeroUsize {
-        self.queue.msg_size()
+    pub(crate) fn message_size(&self) -> NonZeroUsize {
+        self.queue.message_size()
     }
 
-    pub(crate) fn current(&self) -> *mut () {
-        let ptr = self.queue.msgs.get(self.current as usize).unwrap();
+    pub(crate) fn current_message(&self) -> *mut () {
+        let ptr = self.queue.messages.get(self.current as usize).unwrap();
         ptr.cast()
     }
 
@@ -217,7 +242,7 @@ impl ProducerQueue {
         self.queue.tail_compare_exchange(tail, next)
     }
 
-    fn enqueue_first_msg(&mut self) {
+    fn enqueue_first_message(&mut self) {
         self.queue_store(self.current, INVALID_INDEX);
 
         self.queue.tail_store(self.current);
@@ -227,7 +252,7 @@ impl ProducerQueue {
         self.queue.head_store(self.head);
     }
 
-    fn enqueue_msg(&mut self) {
+    fn enqueue_message(&mut self) {
         self.queue_store(self.current, INVALID_INDEX);
 
         self.queue_store(self.head, self.current);
@@ -288,19 +313,19 @@ impl ProducerQueue {
         let next = self.chain[self.current as usize];
 
         if self.head == INVALID_INDEX {
-            self.enqueue_first_msg();
+            self.enqueue_first_message();
             self.current = next;
             return ProduceForceResult::Success;
         }
 
         let mut discarded = false;
 
-        self.enqueue_msg();
+        self.enqueue_message();
 
         let tail = self.queue.tail_load();
 
         if !self.queue.is_valid_index(tail & INDEX_MASK) {
-            return ProduceForceResult::Error;
+            return ProduceForceResult::QueueError;
         }
 
         let consumed: bool = (tail & CONSUMED_FLAG) != 0;
@@ -357,7 +382,7 @@ impl ProducerQueue {
         }
 
         if discarded {
-            ProduceForceResult::MsgDiscarded
+            ProduceForceResult::SuccessMessageDiscarded
         } else {
             ProduceForceResult::Success
         }
@@ -368,7 +393,7 @@ impl ProducerQueue {
         let next = self.chain[self.current as usize];
 
         if self.head == INVALID_INDEX {
-            self.enqueue_first_msg();
+            self.enqueue_first_message();
             self.current = next;
             return ProduceTryResult::Success;
         }
@@ -376,7 +401,7 @@ impl ProducerQueue {
         let tail = self.queue.tail_load();
 
         if !self.queue.is_valid_index(tail & INDEX_MASK) {
-            return ProduceTryResult::Error;
+            return ProduceTryResult::QueueError;
         }
 
         if self.overrun != INVALID_INDEX {
@@ -385,7 +410,7 @@ impl ProducerQueue {
             if consumed {
                 /* consumer released overrun message, so we can use it */
                 /* requeue overrun */
-                self.enqueue_msg();
+                self.enqueue_message();
 
                 self.queue_store(self.overrun, next);
 
@@ -398,12 +423,12 @@ impl ProducerQueue {
 
             /* no previous overrun, use next or after next message */
             if !full {
-                self.enqueue_msg();
+                self.enqueue_message();
                 self.current = next;
                 return ProduceTryResult::Success;
             }
         }
-        ProduceTryResult::Fail
+        ProduceTryResult::QueueFull
     }
 }
 
@@ -417,7 +442,7 @@ impl ConsumerQueue {
         chunk: Chunk,
         add_msgs: usize,
         msg_size: NonZeroUsize,
-    ) -> Result<Self, ShmError> {
+    ) -> Result<Self, ShmPointerError> {
         let queue = Queue::new(chunk, add_msgs, msg_size)?;
         Ok(Self { queue, current: 0 })
     }
@@ -426,12 +451,12 @@ impl ConsumerQueue {
         self.queue.init();
     }
 
-    pub(crate) fn msg_size(&self) -> NonZeroUsize {
-        self.queue.msg_size()
+    pub(crate) fn message_size(&self) -> NonZeroUsize {
+        self.queue.message_size()
     }
 
-    pub(crate) fn current(&self) -> Option<*const ()> {
-        let ptr = self.queue.msgs.get(self.current as usize)?;
+    pub(crate) fn current_message(&self) -> Option<*const ()> {
+        let ptr = self.queue.messages.get(self.current as usize)?;
         Some(ptr.cast())
     }
 
@@ -441,17 +466,17 @@ impl ConsumerQueue {
 
             if tail == INVALID_INDEX {
                 /* or CONSUMED_FLAG doesn't change INDEX_END*/
-                return ConsumeResult::NoMsgAvailable;
+                return ConsumeResult::NoMessage;
             }
 
             if !self.queue.is_valid_index(tail & INDEX_MASK) {
-                return ConsumeResult::Error;
+                return ConsumeResult::QueueError;
             }
 
             let head = self.queue.head_load();
 
             if !self.queue.is_valid_index(head) {
-                return ConsumeResult::Error;
+                return ConsumeResult::QueueError;
             }
 
             if self
@@ -471,28 +496,28 @@ impl ConsumerQueue {
         let tail = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
         if tail == INVALID_INDEX {
-            return ConsumeResult::NoMsgAvailable;
+            return ConsumeResult::NoMessage;
         }
 
         if !self.queue.is_valid_index(tail & INDEX_MASK) {
-            return ConsumeResult::Error;
+            return ConsumeResult::QueueError;
         }
 
         if tail & CONSUMED_FLAG == 0 {
             /* producer moved tail, use it */
             self.current = tail;
-            return ConsumeResult::MsgsDiscarded;
+            return ConsumeResult::SuccessMessagesDiscarded;
         }
 
         /* try to get next message */
         let next = self.queue.chain_load(self.current);
 
         if next == INVALID_INDEX {
-            return ConsumeResult::NoUpdate;
+            return ConsumeResult::NoNewMessage;
         }
 
         if !self.queue.is_valid_index(next) {
-            return ConsumeResult::Error;
+            return ConsumeResult::QueueError;
         }
 
         if self.queue.tail_compare_exchange(tail, next | CONSUMED_FLAG) {
@@ -503,11 +528,11 @@ impl ConsumerQueue {
             let current = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
             if !self.queue.is_valid_index(current) {
-                return ConsumeResult::Error;
+                return ConsumeResult::QueueError;
             }
 
             self.current = current;
-            ConsumeResult::MsgsDiscarded
+            ConsumeResult::SuccessMessagesDiscarded
         }
     }
 }

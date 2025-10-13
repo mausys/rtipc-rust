@@ -58,19 +58,19 @@ impl App {
             let eventfd = self.command.eventfd().unwrap();
             let _ = wait_pollin(eventfd, Duration::from_millis(10));
             match self.command.pop() {
-                ConsumeResult::Error => panic!(),
-                ConsumeResult::NoMsgAvailable => continue,
-                ConsumeResult::NoUpdate => continue,
+                ConsumeResult::QueueError => panic!(),
+                ConsumeResult::NoMessage => continue,
+                ConsumeResult::NoNewMessage => continue,
                 ConsumeResult::Success => {}
-                ConsumeResult::MsgsDiscarded => {}
+                ConsumeResult::SuccessMessagesDiscarded => {}
             };
-            let cmd = self.command.msg().unwrap();
-            self.response.msg().id = cmd.id;
+            let cmd = self.command.current_message().unwrap();
+            self.response.current_message().id = cmd.id;
             let args: [i32; 3] = cmd.args;
             println!("server received command: {}", cmd);
 
             let cmdid: CommandId = unsafe { ::std::mem::transmute(cmd.id) };
-            self.response.msg().result = match cmdid {
+            self.response.current_message().result = match cmdid {
                 CommandId::Hello => 0,
                 CommandId::Stop => {
                     run = false;
@@ -81,7 +81,7 @@ impl App {
                 }
                 CommandId::Div => {
                     let (err, res) = self.div(args[0], args[1]);
-                    self.response.msg().data = res;
+                    self.response.current_message().data = res;
                     err
                 }
             };
@@ -92,13 +92,13 @@ impl App {
     }
     fn send_events(&mut self, id: u32, num: u32, force: bool) -> i32 {
         for i in 0..num {
-            let event = self.event.msg();
+            let event = self.event.current_message();
             event.id = id;
             event.nr = i;
             if force {
                 self.event.force_push();
             } else {
-                if self.event.try_push() == ProduceTryResult::Fail {
+                if self.event.try_push() == ProduceTryResult::QueueFull {
                     return i as i32;
                 }
             }

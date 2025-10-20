@@ -1,8 +1,58 @@
-use cache_size::{cache_line_size, CacheType};
-
+use crate::log::*;
+use crate::mem_align;
+use std::fs::read_to_string;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::mem_align;
+#[derive(Debug, PartialEq, Eq)]
+enum CacheType {
+    Data,
+    Instruction,
+    Unified,
+}
+
+struct Cache {
+    level: usize,
+    cls: usize,
+    cache_type: CacheType,
+}
+
+fn get_cache_attr_path(cpu: usize, index: usize, attr: &str) -> PathBuf {
+    PathBuf::from(format!(
+        "/sys/devices/system/cpu/cpu{cpu}/cache/index{index}/{attr}"
+    ))
+}
+
+fn cache_read_attr(cpu: usize, index: usize, attr: &str) -> Result<usize, std::io::Error> {
+    read_to_string(get_cache_attr_path(cpu, index, attr))?
+        .trim_end()
+        .parse::<usize>()
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "parser error"))
+}
+
+fn cache_read_type(cpu: usize, index: usize) -> Result<CacheType, std::io::Error> {
+    let strtype = read_to_string(get_cache_attr_path(cpu, index, "type"))?;
+    match strtype.trim_end() {
+        "Data" => Ok(CacheType::Data),
+        "Instruction" => Ok(CacheType::Instruction),
+        "Unified" => Ok(CacheType::Unified),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "parser error",
+        )),
+    }
+}
+
+fn read_cache(cpu: usize, index: usize) -> Result<Cache, std::io::Error> {
+    let level = cache_read_attr(cpu, index, "level")?;
+    let cls = cache_read_attr(cpu, index, "coherency_line_size")?;
+    let cache_type = cache_read_type(cpu, index)?;
+    Ok(Cache {
+        level,
+        cls,
+        cache_type,
+    })
+}
 
 pub(crate) fn max_cacheline_size() -> usize {
     static CLS: AtomicUsize = AtomicUsize::new(0);
@@ -16,20 +66,22 @@ pub(crate) fn max_cacheline_size() -> usize {
     // TODO: replace this with max_align_t
     cls = std::mem::align_of::<f64>();
 
-    for level in 1..=2 {
-        cls = match cache_line_size(level, CacheType::Data) {
-            None => cls,
-            Some(s) => {
-                if s > cls {
-                    s
-                } else {
-                    cls
-                }
+    for index in 0..4 {
+        if let Ok(cache) = read_cache(0, index) {
+            if cache.cache_type != CacheType::Data {
+                continue;
             }
-        };
+            if cache.level > 2 {
+                continue;
+            }
+            if cache.cls > cls {
+                cls = cache.cls;
+            }
+        }
     }
 
     CLS.store(cls, Ordering::Relaxed);
+    info!("cache line size = {cls}");
     cls
 }
 

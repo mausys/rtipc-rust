@@ -7,6 +7,7 @@ use std::{
 use crate::{
     error::*,
     header::{verify_header, write_header, HEADER_SIZE},
+    log::error,
     mem_align, ChannelParam, VectorParam,
 };
 
@@ -38,10 +39,12 @@ impl ChannelEntry {
         let info_size = self.info_size as usize;
 
         if info_offset + info_size > message.len() {
+            error!("request: info exceeds message size");
             return Err(RequestPointerError::OutOfBounds);
         }
 
         if self.message_size == 0 {
+            error!("request: message size = 0 not allowed");
             return Err(RequestPointerError::OutOfBounds);
         }
 
@@ -149,7 +152,11 @@ fn req_get_mut_ptr<T>(request: &mut [u8], offset: usize) -> Result<*mut T, Reque
     Ok(ptr)
 }
 
-fn request_write<T: Copy>(request: &[u8], offset: usize, val: &T) -> Result<(), RequestPointerError> {
+fn request_write<T: Copy>(
+    request: &[u8],
+    offset: usize,
+    val: &T,
+) -> Result<(), RequestPointerError> {
     if offset + size_of::<T>() > request.len() {
         return Err(RequestPointerError::OutOfBounds);
     }
@@ -177,37 +184,51 @@ struct ChannelTable<'a> {
 
 impl<'a> ChannelTable<'a> {
     pub(crate) fn from_request(request: &'a [u8]) -> Result<Self, ProcessRequestError> {
-        let header = request
-            .get(0..HEADER_SIZE)
-            .ok_or(ProcessRequestError::RequestPointerError(
-                RequestPointerError::OutOfBounds,
-            ))?;
+        let header =
+            request
+                .get(0..HEADER_SIZE)
+                .ok_or(ProcessRequestError::RequestPointerError(
+                    RequestPointerError::OutOfBounds,
+                ))?;
 
-        verify_header(header)?;
+        verify_header(header).inspect_err(|e| {
+            error!("parse header failed {:?}", e);
+        })?;
 
         let mut offset: usize = HEADER_SIZE;
         offset = mem_align(offset, align_of::<u32>());
 
-        let vector_info_size = request_read::<u32>(request, offset)? as usize;
+        let vector_info_size = request_read::<u32>(request, offset).inspect_err(|_| {
+            error!("request message too short");
+        })? as usize;
         offset += size_of::<u32>();
 
-        let num_consumers = request_read::<u32>(request, offset)? as usize;
+        let num_consumers = request_read::<u32>(request, offset).inspect_err(|_| {
+            error!("request message too small");
+        })? as usize;
         offset += size_of::<u32>();
 
-        let num_producers = request_read::<u32>(request, offset)? as usize;
+        let num_producers = request_read::<u32>(request, offset).inspect_err(|_| {
+            error!("request message too small");
+        })? as usize;
         offset += size_of::<u32>();
 
         offset = mem_align(offset, align_of::<ChannelEntry>());
 
-        let consumers_ptr = request_get_ptr::<ChannelEntry>(request, offset)?;
+        let consumers_ptr = request_get_ptr::<ChannelEntry>(request, offset).inspect_err(|_| {
+            error!("request message too small");
+        })?;
         offset += num_consumers * size_of::<ChannelEntry>();
 
-        let producers_ptr = request_get_ptr::<ChannelEntry>(request, offset)?;
+        let producers_ptr = request_get_ptr::<ChannelEntry>(request, offset).inspect_err(|_| {
+            error!("request message too small");
+        })?;
         offset += num_producers * size_of::<ChannelEntry>();
 
         let vector_info_offset = offset;
 
         if vector_info_offset + vector_info_size > request.len() {
+            error!("request message too small for vector info");
             return Err(ProcessRequestError::RequestPointerError(
                 RequestPointerError::OutOfBounds,
             ));
@@ -234,13 +255,21 @@ impl<'a> ChannelTable<'a> {
         let info: Vec<u8> = self.request[self.vector_info_offset..channel_info_offset].to_vec();
 
         for entry in self.consumers {
-            let param = entry.to_param(self.request, channel_info_offset)?;
+            let param = entry
+                .to_param(self.request, channel_info_offset)
+                .inspect_err(|_| {
+                    error!("parse consumer entry {:?} failed", consumers.len());
+                })?;
             channel_info_offset += param.info.len();
             consumers.push(param);
         }
 
         for entry in self.producers {
-            let param = entry.to_param(self.request, channel_info_offset)?;
+            let param = entry
+                .to_param(self.request, channel_info_offset)
+                .inspect_err(|_| {
+                    error!("parse producer entry {:?} failed", producers.len());
+                })?;
             channel_info_offset += param.info.len();
             producers.push(param);
         }

@@ -109,7 +109,7 @@ impl SharedMemory {
     }
 
     pub(crate) fn new(size: NonZeroUsize) -> Result<Arc<Self>, Errno> {
-        let fd: OwnedFd = memfd_create("test", MFdFlags::MFD_ALLOW_SEALING)?;
+        let fd: OwnedFd = memfd_create("rtipc", MFdFlags::MFD_ALLOW_SEALING)?;
         Self::init(&fd, size)?;
         Self::create(fd)
     }
@@ -126,6 +126,7 @@ impl SharedMemory {
 impl Drop for SharedMemory {
     fn drop(&mut self) {
         let ptr: NonNull<c_void> = NonNull::new(self.ptr as *mut c_void).unwrap();
+        debug!("unmap {:?}", ptr);
         if let Err(_e) = unsafe { munmap(ptr, self.size.get()) } {
             error!("munmap failed with : {_e}");
         }

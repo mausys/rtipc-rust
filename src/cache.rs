@@ -1,8 +1,9 @@
-use crate::log::*;
-use crate::mem_align;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::log::*;
+use crate::mem_align;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CacheType {
@@ -47,6 +48,9 @@ fn read_cache(cpu: usize, index: usize) -> Result<Cache, std::io::Error> {
     let level = cache_read_attr(cpu, index, "level")?;
     let cls = cache_read_attr(cpu, index, "coherency_line_size")?;
     let cache_type = cache_read_type(cpu, index)?;
+
+    debug!("cache on cpu[{cpu}]: level={level} cls={cls}, type={:?}", cache_type);
+
     Ok(Cache {
         level,
         cls,

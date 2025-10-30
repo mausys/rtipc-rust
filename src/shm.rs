@@ -15,7 +15,7 @@ use nix::{
     libc::c_void,
     sys::{
         memfd::{memfd_create, MFdFlags},
-        mman::{mmap, munmap, MapFlags, ProtFlags},
+        mman::{mlock, mmap, munmap, MapFlags, ProtFlags},
         stat::fstat,
     },
     unistd::ftruncate,
@@ -100,6 +100,11 @@ impl SharedMemory {
                 0,                                            // Offset into fd
             )
         }?;
+
+        unsafe {
+            mlock(ptr, size.get())?;
+        }
+
         Ok(Arc::new_cyclic(|me| Self {
             me: me.clone(),
             fd,

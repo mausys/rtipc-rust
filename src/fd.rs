@@ -16,13 +16,13 @@ pub(crate) fn eventfd() -> Result<EventFd> {
     let evd = EventFd::from_flags(
         EfdFlags::EFD_CLOEXEC | EfdFlags::EFD_SEMAPHORE | EfdFlags::EFD_NONBLOCK,
     )
-    .inspect_err(|e| error!("eventfd failed {:?}", e))?;
+    .inspect_err(|e| error!("eventfd failed {e:?}"))?;
     Ok(evd)
 }
 
 fn fd_link(fd: RawFd) -> Result<String> {
     let path = format!("{PROC_SELF_FD}{fd}");
-    let oslink = readlink(path.as_str()).inspect_err(|e| error!("readlink failed {:?}", e))?;
+    let oslink = readlink(path.as_str()).inspect_err(|e| error!("readlink failed {e:?}"))?;
     let link = oslink
         .to_str()
         .ok_or(Errno::EBADF)
@@ -37,7 +37,7 @@ pub(crate) fn into_eventfd(fd: OwnedFd) -> Result<EventFd> {
     let link = fd_link(fd.as_raw_fd())?;
 
     if link.get(0..expected.len()).ok_or(Errno::EBADF)? != expected {
-        error!("link is not eventfd {:?}", link);
+        error!("link is not eventfd {link:?}");
         return Err(Errno::EBADF);
     }
 

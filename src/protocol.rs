@@ -192,7 +192,7 @@ impl<'a> ChannelTable<'a> {
                 ))?;
 
         verify_header(header).inspect_err(|e| {
-            error!("parse header failed {:?}", e);
+            error!("parse header failed {e:?}");
         })?;
 
         let mut offset: usize = HEADER_SIZE;

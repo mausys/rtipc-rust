@@ -9,11 +9,14 @@ license = "MIT OR Apache-2.0"
 keywords = ["ipc", "linux", "real-time"]
 categories = ["concurrency"]
 
+
 [dependencies]
 nix = { version = "0.30.1", features = ["event", "fs", "mman", "feature", "socket", "uio"] }
 log = {version = "0.4"}
 
 
+[features]
+predefined_cacheline_size = []
 
 
 [[example]]

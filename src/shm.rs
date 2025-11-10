@@ -131,7 +131,7 @@ impl SharedMemory {
 impl Drop for SharedMemory {
     fn drop(&mut self) {
         let ptr: NonNull<c_void> = NonNull::new(self.ptr as *mut c_void).unwrap();
-        debug!("unmap {:?}", ptr);
+        debug!("unmap {ptr:?}");
         if let Err(_e) = unsafe { munmap(ptr, self.size.get()) } {
             error!("munmap failed with : {_e}");
         }

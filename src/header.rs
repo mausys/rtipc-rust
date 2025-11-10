@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use crate::cache::max_cacheline_size;
+use crate::max_cacheline_size;
 use crate::error::*;
 use crate::Index;
 

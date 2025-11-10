@@ -1,4 +1,7 @@
-mod cache;
+#[cfg(not(feature = "predefined_cacheline_size"))]
+mod cache_linux;
+#[cfg(feature = "predefined_cacheline_size")]
+mod cache_env;
 mod channel;
 pub mod error;
 mod fd;
@@ -14,7 +17,10 @@ extern crate nix;
 
 use std::{num::NonZeroUsize, sync::atomic::AtomicU32};
 
-use crate::cache::cacheline_aligned;
+#[cfg(not(feature = "predefined_cacheline_size"))]
+use crate::cache_linux::max_cacheline_size;
+#[cfg(feature = "predefined_cacheline_size")]
+use crate::cache_env::max_cacheline_size;
 
 pub use channel::{ChannelVector, Consumer, Producer};
 pub use error::*;
@@ -27,9 +33,18 @@ pub(crate) type AtomicIndex = AtomicU32;
 pub(crate) type Index = u32;
 pub(crate) const MIN_MSGS: usize = 3;
 
+
+
+
+
 pub(crate) fn mem_align(size: usize, alignment: usize) -> usize {
     (size + alignment - 1) & !(alignment - 1)
 }
+
+pub(crate) fn cacheline_aligned(size: usize) -> usize {
+    mem_align(size, max_cacheline_size())
+}
+
 
 #[derive(Clone)]
 pub struct ChannelParam {

@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
 
-use crate::cache::cacheline_aligned;
+use crate::cacheline_aligned;
 use crate::error::*;
 use crate::shm::{Chunk, Span};
 

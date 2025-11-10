@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::log::*;
-use crate::mem_align;
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 #[derive(Debug, PartialEq, Eq)]
 enum CacheType {
     Data,
@@ -13,21 +11,18 @@ enum CacheType {
     Unified,
 }
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 struct Cache {
     level: usize,
     cls: usize,
     cache_type: CacheType,
 }
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 fn get_cache_attr_path(cpu: usize, index: usize, attr: &str) -> PathBuf {
     PathBuf::from(format!(
         "/sys/devices/system/cpu/cpu{cpu}/cache/index{index}/{attr}"
     ))
 }
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 fn cache_read_attr(cpu: usize, index: usize, attr: &str) -> Result<usize, std::io::Error> {
     read_to_string(get_cache_attr_path(cpu, index, attr))?
         .trim_end()
@@ -35,7 +30,6 @@ fn cache_read_attr(cpu: usize, index: usize, attr: &str) -> Result<usize, std::i
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "parser error"))
 }
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 fn cache_read_type(cpu: usize, index: usize) -> Result<CacheType, std::io::Error> {
     let strtype = read_to_string(get_cache_attr_path(cpu, index, "type"))?;
     match strtype.trim_end() {
@@ -49,7 +43,6 @@ fn cache_read_type(cpu: usize, index: usize) -> Result<CacheType, std::io::Error
     }
 }
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 fn read_cache(cpu: usize, index: usize) -> Result<Cache, std::io::Error> {
     let level = cache_read_attr(cpu, index, "level")?;
     let cls = cache_read_attr(cpu, index, "coherency_line_size")?;
@@ -64,7 +57,6 @@ fn read_cache(cpu: usize, index: usize) -> Result<Cache, std::io::Error> {
     })
 }
 
-#[cfg(not(feature = "predefined_cacheline_size"))]
 pub(crate) fn max_cacheline_size() -> usize {
     static CLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -96,25 +88,4 @@ pub(crate) fn max_cacheline_size() -> usize {
     cls
 }
 
-#[cfg(feature = "predefined_cacheline_size")]
-pub(crate) fn max_cacheline_size() -> usize {
-    static CLS: AtomicUsize = AtomicUsize::new(0);
 
-    let mut cls = CLS.load(Ordering::Relaxed);
-
-    if cls != 0 {
-        return cls;
-    }
-
-    let cls_str = env!("CACHELINE_SIZE");
-    cls = cls_str.parse::<usize>().unwrap();
-
-    CLS.store(cls, Ordering::Relaxed);
-
-    info!("cache line size = {cls}");
-    cls
-}
-
-pub(crate) fn cacheline_aligned(size: usize) -> usize {
-    mem_align(size, max_cacheline_size())
-}

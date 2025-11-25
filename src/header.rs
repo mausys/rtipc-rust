@@ -24,9 +24,10 @@ pub(crate) fn verify_header(buf: &[u8]) -> Result<(), HeaderError> {
 
     let cacheline_size: u16 = max_cacheline_size().try_into().unwrap();
     let atomic_size: u16 = std::mem::size_of::<Index>().try_into().unwrap();
+
     let ptr: *const Header = buf.as_ptr() as *const Header;
 
-    let header = unsafe { ptr.read() };
+    let header = unsafe { ptr.read_unaligned() };
 
     if header.magic != RTIC_MAGIC {
         return Err(HeaderError::MagicMismatch);

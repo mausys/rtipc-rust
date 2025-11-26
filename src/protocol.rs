@@ -1,7 +1,4 @@
-use std::{
-    num::NonZeroUsize,
-    slice::from_raw_parts_mut,
-};
+use std::num::NonZeroUsize;
 
 use crate::{
     error::*,
@@ -29,44 +26,10 @@ impl ChannelEntry {
     }
 }
 
-impl ChannelEntry {
-    pub(crate) fn to_param(
-        &self,
-        message: &[u8],
-        info_offset: usize,
-    ) -> Result<ChannelParam, RequestPointerError> {
-        let info_size = self.info_size as usize;
-
-        if info_offset + info_size > message.len() {
-            error!("request: info exceeds message size");
-            return Err(RequestPointerError::OutOfBounds);
-        }
-
-        if self.message_size == 0 {
-            error!("request: message size = 0 not allowed");
-            return Err(RequestPointerError::OutOfBounds);
-        }
-
-        let message_size = NonZeroUsize::new(self.message_size as usize).unwrap();
-
-        let info = match info_size {
-            0 => Vec::with_capacity(0),
-            _ => message[info_offset..info_offset + info_size].to_vec(),
-        };
-
-        Ok(ChannelParam {
-            additional_messages: self.additional_messages as usize,
-            message_size,
-            info,
-            eventfd: self.eventfd != 0,
-        })
-    }
-}
-
 struct Layout {
     vector_info_offset: usize,
     num_channels: [usize; 2],
-    channels: [usize; 2],
+    channel_table: usize,
     vector_info: usize,
     channel_infos: usize,
     size: usize,
@@ -82,10 +45,8 @@ impl Layout {
         let num_channels: [usize; 2] = [offset, offset + size_of::<u32>()];
         offset += 2 * size_of::<u32>();
 
-        let channels: [usize; 2] = [
-            offset,
-            offset + vparam.producers.len() * size_of::<ChannelEntry>(),
-        ];
+        let channel_table: usize = offset;
+
         offset += (vparam.producers.len() + vparam.consumers.len()) * size_of::<ChannelEntry>();
 
         let vector_info = offset;
@@ -106,7 +67,7 @@ impl Layout {
         Self {
             vector_info_offset,
             num_channels,
-            channels,
+            channel_table,
             vector_info,
             channel_infos,
             size,
@@ -131,10 +92,6 @@ fn req_get_mut_ptr<T>(request: &mut [u8], offset: usize) -> Result<*mut T, Reque
 
     let ptr = unsafe { request.as_mut_ptr().byte_add(offset) as *mut T };
 
-    if !ptr.is_aligned() {
-        return Err(RequestPointerError::Misalignment);
-    }
-
     Ok(ptr)
 }
 
@@ -158,6 +115,64 @@ fn request_write<T: Copy>(
     }
 
     Ok(())
+}
+
+fn write_param(
+    param: &ChannelParam,
+    request: &mut [u8],
+    entry_offset: &mut usize,
+    info_offset: &mut usize,
+) {
+    let entry_ptr = req_get_mut_ptr::<ChannelEntry>(request, *entry_offset).unwrap();
+    unsafe {
+        entry_ptr.write_unaligned(ChannelEntry::from_param(param));
+    }
+
+    if !param.info.is_empty() {
+        request[*info_offset..*info_offset + param.info.len()]
+            .clone_from_slice(param.info.as_slice());
+        *info_offset += param.info.len();
+    }
+    *entry_offset += size_of::<ChannelEntry>();
+}
+
+fn read_entry(
+    request: &[u8],
+    entry_offset: &mut usize,
+    info_offset: &mut usize,
+) -> Result<ChannelParam, RequestPointerError> {
+    let entry = request_read::<ChannelEntry>(request, *entry_offset).inspect_err(|_| {
+        error!("request message too short");
+    })?;
+
+    if entry.message_size == 0 {
+        error!("request: message size = 0 not allowed");
+        return Err(RequestPointerError::OutOfBounds);
+    }
+
+    let message_size = NonZeroUsize::new(entry.message_size as usize).unwrap();
+
+    let info_size = entry.info_size as usize;
+
+    if *info_offset + info_size > request.len() {
+        error!("request message too small for channel infos");
+        return Err(RequestPointerError::OutOfBounds);
+    }
+
+    let info = match info_size {
+        0 => Vec::with_capacity(0),
+        _ => request[*info_offset..*info_offset + info_size].to_vec(),
+    };
+
+    *entry_offset += size_of::<ChannelEntry>();
+    *info_offset += info_size;
+
+    Ok(ChannelParam {
+        additional_messages: entry.additional_messages as usize,
+        message_size,
+        info,
+        eventfd: entry.eventfd != 0,
+    })
 }
 
 pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessRequestError> {
@@ -205,44 +220,15 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessReques
     let mut producers: Vec<ChannelParam> = Vec::with_capacity(num_producers);
 
     for _ in 0..num_consumers {
-        let entry = request_read::<ChannelEntry>(request, offset).inspect_err(|_| {
-            error!("request message too short");
-        })?;
-
-        let param = entry
-            .to_param(request, channel_info_offset)
-            .inspect_err(|_| {
-                error!("parse consumer entry {:?} failed", consumers.len());
-            })?;
-
-        offset += size_of::<ChannelEntry>();
-        channel_info_offset += param.info.len();
+        let param = read_entry(request, &mut offset, &mut channel_info_offset)?;
 
         consumers.push(param);
     }
 
     for _ in 0..num_producers {
-        let entry = request_read::<ChannelEntry>(request, offset).inspect_err(|_| {
-            error!("request message too short");
-        })?;
-
-        let param = entry
-            .to_param(request, channel_info_offset)
-            .inspect_err(|_| {
-                error!("parse producer entry {:?} failed", consumers.len());
-            })?;
-
-        offset += size_of::<ChannelEntry>();
-        channel_info_offset += param.info.len();
+        let param = read_entry(request, &mut offset, &mut channel_info_offset)?;
 
         producers.push(param);
-    }
-
-    if channel_info_offset > request.len() {
-        error!("request message too small for channel infos");
-        return Err(ProcessRequestError::RequestPointerError(
-            RequestPointerError::OutOfBounds,
-        ));
     }
 
     Ok(VectorParam {
@@ -280,38 +266,19 @@ pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
     )
     .unwrap();
 
-    let producers_ptr =
-        req_get_mut_ptr::<ChannelEntry>(request.as_mut_slice(), layout.channels[0]).unwrap();
-
-    let consumers_ptr =
-        req_get_mut_ptr::<ChannelEntry>(request.as_mut_slice(), layout.channels[1]).unwrap();
-
-    let producer_entries = unsafe { from_raw_parts_mut(producers_ptr, vparam.producers.len()) };
-    let consumer_entries = unsafe { from_raw_parts_mut(consumers_ptr, vparam.consumers.len()) };
+    let mut entry_offset = layout.channel_table;
 
     request[layout.vector_info..layout.vector_info + vparam.info.len()]
         .clone_from_slice(vparam.info.as_slice());
 
     let mut info_offset = layout.channel_infos;
 
-    for (index, param) in vparam.producers.iter().enumerate() {
-        producer_entries[index] = ChannelEntry::from_param(param);
-
-        if !param.info.is_empty() {
-            request[info_offset..info_offset + param.info.len()]
-                .clone_from_slice(param.info.as_slice());
-            info_offset += param.info.len();
-        }
+    for param in vparam.producers.iter() {
+        write_param(param, &mut request, &mut entry_offset, &mut info_offset);
     }
 
-    for (index, param) in vparam.consumers.iter().enumerate() {
-        consumer_entries[index] = ChannelEntry::from_param(param);
-
-        if !param.info.is_empty() {
-            request[info_offset..info_offset + param.info.len()]
-                .clone_from_slice(param.info.as_slice());
-            info_offset += param.info.len();
-        }
+    for param in vparam.consumers.iter() {
+        write_param(param, &mut request, &mut entry_offset, &mut info_offset);
     }
 
     request

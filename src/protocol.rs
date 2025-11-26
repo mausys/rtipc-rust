@@ -117,9 +117,9 @@ fn request_write<T: Copy>(
     Ok(())
 }
 
-fn write_param(
-    param: &ChannelParam,
+fn request_write_param(
     request: &mut [u8],
+    param: &ChannelParam,
     entry_offset: &mut usize,
     info_offset: &mut usize,
 ) {
@@ -136,7 +136,7 @@ fn write_param(
     *entry_offset += size_of::<ChannelEntry>();
 }
 
-fn read_entry(
+fn request_read_entry(
     request: &[u8],
     entry_offset: &mut usize,
     info_offset: &mut usize,
@@ -220,13 +220,13 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessReques
     let mut producers: Vec<ChannelParam> = Vec::with_capacity(num_producers);
 
     for _ in 0..num_consumers {
-        let param = read_entry(request, &mut offset, &mut channel_info_offset)?;
+        let param = request_read_entry(request, &mut offset, &mut channel_info_offset)?;
 
         consumers.push(param);
     }
 
     for _ in 0..num_producers {
-        let param = read_entry(request, &mut offset, &mut channel_info_offset)?;
+        let param = request_read_entry(request, &mut offset, &mut channel_info_offset)?;
 
         producers.push(param);
     }
@@ -274,11 +274,11 @@ pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
     let mut info_offset = layout.channel_infos;
 
     for param in vparam.producers.iter() {
-        write_param(param, &mut request, &mut entry_offset, &mut info_offset);
+        request_write_param(&mut request, param, &mut entry_offset, &mut info_offset);
     }
 
     for param in vparam.consumers.iter() {
-        write_param(param, &mut request, &mut entry_offset, &mut info_offset);
+        request_write_param(&mut request, param, &mut entry_offset, &mut info_offset);
     }
 
     request

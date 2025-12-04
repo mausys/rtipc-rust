@@ -8,7 +8,7 @@ use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::error::*;
-use crate::request::Request;
+use crate::unix_message::UnixMessage;
 use crate::ChannelVector;
 use crate::VectorParam;
 
@@ -31,10 +31,15 @@ impl Server {
         Ok(Self { sockfd, addr })
     }
 
-    pub fn accept(&self) -> Result<ChannelVector, ProcessRequestError> {
+    pub fn accept<F>(&self, filter: F) -> Result<ChannelVector, ProcessRequestError>
+    where
+        F: Fn(&ChannelVector) -> Result<(), Errno>,
+    {
         let cfd = accept(self.sockfd.as_raw_fd())?;
-        let req = Request::receive(cfd.as_raw_fd())?;
-        ChannelVector::from_request(req)
+        let req = UnixMessage::receive(cfd.as_raw_fd())?;
+        let vector = ChannelVector::from_request(req)?;
+        filter(&vector)?;
+        Ok(vector)
     }
 }
 

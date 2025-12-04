@@ -8,7 +8,7 @@ mod fd;
 mod header;
 mod protocol;
 mod queue;
-mod request;
+mod unix_message;
 mod shm;
 mod socket;
 

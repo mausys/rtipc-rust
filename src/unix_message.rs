@@ -10,13 +10,13 @@ use nix::Result;
 //from kernel header file net/scm.h: SCM_MAX_FD
 const MAX_FD: usize = 253;
 
-pub(crate) struct Request {
+pub(crate) struct UnixMessage {
     content: Vec<u8>,
     fds: Vec<RawFd>,
     cleanup: bool,
 }
 
-impl Request {
+impl UnixMessage {
     pub(crate) fn new(content: Vec<u8>, fds: Vec<RawFd>) -> Self {
         Self {
             content,
@@ -79,7 +79,7 @@ impl Request {
     }
 }
 
-impl Drop for Request {
+impl Drop for UnixMessage {
     fn drop(&mut self) {
         if !self.cleanup {
             return;

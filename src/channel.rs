@@ -14,7 +14,7 @@ use crate::{
     fd::{eventfd, into_eventfd},
     protocol::{create_request_message, parse_request},
     queue::{ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue},
-    request::Request,
+    unix_message::UnixMessage,
     shm::{Chunk, SharedMemory},
     ChannelParam, VectorParam,
 };
@@ -230,7 +230,7 @@ pub struct ChannelVector {
 }
 
 impl ChannelVector {
-    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, Request), CreateRequestError> {
+    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, UnixMessage), CreateRequestError> {
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut fds = Vec::<RawFd>::new();
@@ -290,11 +290,11 @@ impl ChannelVector {
                 consumers,
                 info: vparam.info.clone(),
             },
-            Request::new(msg, fds),
+            UnixMessage::new(msg, fds),
         ))
     }
 
-    pub(crate) fn from_request(mut req: Request) -> Result<Self, ProcessRequestError> {
+    pub(crate) fn from_request(mut req: UnixMessage) -> Result<Self, ProcessRequestError> {
         let mut fds = req.take_fds();
         let shmfd = fds
             .get_mut(0)

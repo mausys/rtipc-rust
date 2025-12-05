@@ -241,6 +241,8 @@ impl ChannelVector {
 
         let shm = SharedMemory::new(shm_size)?;
 
+        fds.push(shm.as_raw_fd());
+
         let mut shm_offset = 0;
 
         for param in &vparam.producers {

@@ -28,9 +28,9 @@ impl UnixMessage {
         let iov = [IoSlice::new(&self.content)];
 
         let cmsg: &[ControlMessage] = if self.fds.is_empty() {
-            &[ControlMessage::ScmRights(self.fds.as_slice())]
-        } else {
             &[]
+        } else {
+            &[ControlMessage::ScmRights(self.fds.as_slice())]
         };
 
         sendmsg::<()>(socket, &iov, cmsg, MsgFlags::empty(), None)

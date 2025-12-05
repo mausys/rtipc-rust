@@ -59,10 +59,13 @@ impl UnixMessage {
             MsgFlags::union(MsgFlags::MSG_PEEK, MsgFlags::MSG_TRUNC),
         )?;
 
-        let fds = match recv_data.cmsgs()?.next().ok_or(Errno::ENOMSG)? {
-            ControlMessageOwned::ScmRights(fds) => fds,
-            _ => return Err(Errno::EBADMSG),
-        };
+        let fds = recv_data.cmsgs()?.next().map_or_else(
+            || Ok(Vec::with_capacity(0)),
+            |fds| match fds {
+                ControlMessageOwned::ScmRights(fds) => Ok(fds),
+                _ => return Err(Errno::EBADMSG),
+            },
+        )?;
 
         Ok(Self {
             content,

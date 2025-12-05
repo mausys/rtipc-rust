@@ -87,5 +87,3 @@ pub(crate) fn max_cacheline_size() -> usize {
     info!("cache line size = {cls}");
     cls
 }
-
-

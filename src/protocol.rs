@@ -238,7 +238,7 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessReques
     })
 }
 
-pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
+pub(crate) fn create_request(vparam: &VectorParam) -> Vec<u8> {
     let layout = Layout::calc(vparam);
 
     let mut request: Vec<u8> = vec![0; layout.size];
@@ -282,4 +282,12 @@ pub(crate) fn create_request_message(vparam: &VectorParam) -> Vec<u8> {
     }
 
     request
+}
+
+pub(crate) fn create_response(result: &Result<(), &ProcessRequestError>) -> Vec<u8> {
+    vec![0, 0, 0, 0]
+}
+
+pub(crate) fn parse_response(response: &[u8]) -> Result<(), CreateRequestError> {
+    Ok(())
 }

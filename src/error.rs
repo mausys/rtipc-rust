@@ -37,6 +37,7 @@ pub enum CreateRequestError {
     RequestPointerError(RequestPointerError),
     ShmPoniterError(ShmPointerError),
     HeaderError(HeaderError),
+    ResponseError,
 }
 
 #[derive(Debug)]

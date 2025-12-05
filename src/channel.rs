@@ -1,9 +1,12 @@
 use std::{
     borrow::BorrowMut,
+    collections::VecDeque,
     marker::PhantomData,
     mem::size_of,
     num::NonZeroUsize,
+    os::fd::OwnedFd,
     os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd},
+    sync::Arc,
 };
 
 use nix::sys::eventfd::EventFd;
@@ -12,9 +15,7 @@ use crate::{
     calc_shm_size,
     error::*,
     fd::{eventfd, into_eventfd},
-    protocol::{create_request_message, parse_request},
     queue::{ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue},
-    unix_message::UnixMessage,
     shm::{Chunk, SharedMemory},
     ChannelParam, VectorParam,
 };
@@ -230,7 +231,7 @@ pub struct ChannelVector {
 }
 
 impl ChannelVector {
-    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, UnixMessage), CreateRequestError> {
+    pub(crate) fn new(vparam: &VectorParam) -> Result<(Self, Vec<RawFd>), CreateRequestError> {
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut fds = Vec::<RawFd>::new();
@@ -239,7 +240,6 @@ impl ChannelVector {
             .ok_or(CreateRequestError::InvalidParam)?;
 
         let shm = SharedMemory::new(shm_size)?;
-        fds.push(shm.as_raw_fd());
 
         let mut shm_offset = 0;
 
@@ -282,79 +282,69 @@ impl ChannelVector {
             shm_offset += shm_size.get();
         }
 
-        let msg = create_request_message(vparam);
-
         Ok((
             Self {
                 producers,
                 consumers,
                 info: vparam.info.clone(),
             },
-            UnixMessage::new(msg, fds),
+            fds,
         ))
     }
 
-    pub(crate) fn from_request(mut req: UnixMessage) -> Result<Self, ProcessRequestError> {
-        let mut fds = req.take_fds();
+    pub(crate) fn map(
+        vparam: &VectorParam,
+        mut fds: VecDeque<OwnedFd>,
+    ) -> Result<Self, ProcessRequestError> {
         let shmfd = fds
-            .get_mut(0)
-            .ok_or(ProcessRequestError::MissingFileDescriptor)?
-            .take()
+            .pop_front()
             .ok_or(ProcessRequestError::MissingFileDescriptor)?;
         let shm = SharedMemory::from_fd(shmfd)?;
-        let vparam = parse_request(req.content())?;
 
         let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vparam.consumers.len());
         let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vparam.producers.len());
 
         let mut shm_offset = 0;
-        let mut fd_index = 1;
-        for param in vparam.consumers {
+        for param in &vparam.consumers {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd {
                 let ofd = fds
-                    .get_mut(fd_index)
-                    .ok_or(ProcessRequestError::MissingFileDescriptor)?
-                    .take()
+                    .pop_front()
                     .ok_or(ProcessRequestError::MissingFileDescriptor)?;
 
                 let efd = into_eventfd(ofd)?;
 
-                fd_index += 1;
                 Some(efd)
             } else {
                 None
             };
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ConsumerChannel::new(&param, chunk, eventfd)?;
+            let channel = ConsumerChannel::new(param, chunk, eventfd)?;
 
             consumers.push(Some(channel));
 
             shm_offset += shm_size.get();
         }
 
-        for param in vparam.producers {
+        for param in &vparam.producers {
             let shm_size = param.shm_size();
 
             let eventfd = if param.eventfd {
                 let ofd = fds
-                    .get_mut(fd_index)
-                    .ok_or(ProcessRequestError::MissingFileDescriptor)?
-                    .take()
+                    .pop_front()
                     .ok_or(ProcessRequestError::MissingFileDescriptor)?;
 
                 let efd = into_eventfd(ofd)?;
 
-                fd_index += 1;
                 Some(efd)
             } else {
                 None
             };
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ProducerChannel::new(&param, chunk, eventfd)?;
+            let channel = ProducerChannel::new(param, chunk, eventfd)?;
 
             producers.push(Some(channel));
 

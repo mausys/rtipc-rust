@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
-use crate::max_cacheline_size;
 use crate::error::*;
+use crate::max_cacheline_size;
 use crate::Index;
 
 const RTIC_MAGIC: u16 = 0x1f0c;

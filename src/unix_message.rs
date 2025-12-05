@@ -1,11 +1,11 @@
-use std::io::{IoSlice, IoSliceMut};
-use std::os::fd::{FromRawFd, OwnedFd};
-use std::os::unix::io::RawFd;
-
 use nix::errno::Errno;
 use nix::sys::socket::{recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
 use nix::unistd::close;
 use nix::Result;
+use std::collections::VecDeque;
+use std::io::{IoSlice, IoSliceMut};
+use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::unix::io::RawFd;
 
 //from kernel header file net/scm.h: SCM_MAX_FD
 const MAX_FD: usize = 253;
@@ -27,9 +27,13 @@ impl UnixMessage {
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
         let iov = [IoSlice::new(&self.content)];
 
-        let cmsg = ControlMessage::ScmRights(self.fds.as_slice());
+        let cmsg: &[ControlMessage] = if self.fds.is_empty() {
+            &[ControlMessage::ScmRights(self.fds.as_slice())]
+        } else {
+            &[]
+        };
 
-        sendmsg::<()>(socket, &iov, &[cmsg], MsgFlags::empty(), None)
+        sendmsg::<()>(socket, &iov, cmsg, MsgFlags::empty(), None)
     }
 
     pub(crate) fn receive(socket: RawFd) -> Result<Self> {
@@ -71,10 +75,10 @@ impl UnixMessage {
         &self.content
     }
 
-    pub(crate) fn take_fds(&mut self) -> Vec<Option<OwnedFd>> {
+    pub(crate) fn take_fds(&mut self) -> VecDeque<OwnedFd> {
         self.fds
             .drain(0..)
-            .map(|fd| Some(unsafe { OwnedFd::from_raw_fd(fd) }))
+            .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
             .collect()
     }
 }

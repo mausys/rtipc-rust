@@ -28,6 +28,7 @@ pub enum ProcessRequestError {
     ShmPoniterError(ShmPointerError),
     HeaderError(HeaderError),
     MissingFileDescriptor,
+    ResponseError,
 }
 
 #[derive(Debug)]
@@ -37,7 +38,7 @@ pub enum CreateRequestError {
     RequestPointerError(RequestPointerError),
     ShmPoniterError(ShmPointerError),
     HeaderError(HeaderError),
-    ResponseError,
+
 }
 
 #[derive(Debug)]

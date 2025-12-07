@@ -34,7 +34,7 @@ impl Server {
 
     pub fn conditional_accept<F>(&self, filter: F) -> Result<ChannelVector, ProcessRequestError>
     where
-        F: Fn(&ChannelVector) -> Result<(), Errno>,
+        F: Fn(&ChannelVector) -> bool,
     {
         let cfd = accept(self.sockfd.as_raw_fd())?;
         let mut req = UnixMessage::receive(cfd.as_raw_fd())?;
@@ -43,8 +43,11 @@ impl Server {
             let fds = req.take_fds();
             let vparam = parse_request(req.content())?;
             let vector = ChannelVector::map(&vparam, fds)?;
-            filter(&vector)?;
-            Ok(vector)
+            if !filter(&vector) {
+                Err(ProcessRequestError::ResponseError)
+            } else {
+                Ok(vector)
+            }
         };
 
         let response_msg = create_response(&result.as_ref().map(|_| ()));
@@ -56,7 +59,7 @@ impl Server {
     }
 
     pub fn accept(&self) -> Result<ChannelVector, ProcessRequestError> {
-        self.conditional_accept(|_| Ok(()))
+        self.conditional_accept(|_| true)
     }
 }
 

@@ -117,7 +117,7 @@ impl App {
 fn main() {
     let backlog = Backlog::new(1).unwrap();
     let server = Server::new("rtipc.sock", backlog).unwrap();
-    let vec = server.accept().unwrap();
+    let vec = server.conditional_accept(|_| true).unwrap();
     let mut app = App::new(vec);
     app.run();
 }

@@ -285,9 +285,17 @@ pub(crate) fn create_request(vparam: &VectorParam) -> Vec<u8> {
 }
 
 pub(crate) fn create_response(result: &Result<(), &ProcessRequestError>) -> Vec<u8> {
-    vec![0, 0, 0, 0]
+    if result.is_ok() {
+        return vec![0, 0, 0, 0];
+    } else {
+        return vec![0xff, 0xff, 0xff, 0xff];
+    }
 }
 
 pub(crate) fn parse_response(response: &[u8]) -> Result<(), CreateRequestError> {
-    Ok(())
+    if response!= vec![0, 0, 0, 0] {
+        return Err(CreateRequestError::ResponseError);
+    } else {
+        return Ok(());
+    }
 }

@@ -13,7 +13,7 @@ use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
 use rtipc::Consumer;
 use rtipc::Producer;
-use rtipc::{ChannelParam, VectorParam};
+use rtipc::{ChannelConfig, QueueConfig, VectorConfig};
 
 use crate::common::wait_pollin;
 use crate::common::CommandId;
@@ -140,29 +140,35 @@ fn main() {
         },
     ];
 
-    let c2s_channels: [ChannelParam; 1] = [ChannelParam {
-        additional_messages: 0,
-        message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
+    let c2s_channels: [ChannelConfig; 1] = [ChannelConfig {
+        queue: QueueConfig {
+            additional_messages: 0,
+            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgCommand>()) },
+            info: b"rpc command".to_vec(),
+        },
         eventfd: true,
-        info: b"rpc command".to_vec(),
     }];
 
-    let s2c_channels: [ChannelParam; 2] = [
-        ChannelParam {
-            additional_messages: 0,
-            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
+    let s2c_channels: [ChannelConfig; 2] = [
+        ChannelConfig {
+            queue: QueueConfig {
+                additional_messages: 0,
+                message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgResponse>()) },
+                info: b"rpc response".to_vec(),
+            },
             eventfd: false,
-            info: b"rpc response".to_vec(),
         },
-        ChannelParam {
-            additional_messages: 10,
-            message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
+        ChannelConfig {
+            queue: QueueConfig {
+                additional_messages: 10,
+                message_size: unsafe { NonZeroUsize::new_unchecked(size_of::<MsgEvent>()) },
+                info: b"rpc event".to_vec(),
+            },
             eventfd: true,
-            info: b"rpc event".to_vec(),
         },
     ];
 
-    let vparam = VectorParam {
+    let vparam = VectorConfig {
         producers: c2s_channels.to_vec(),
         consumers: s2c_channels.to_vec(),
         info: b"rpc example".to_vec(),

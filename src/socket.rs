@@ -84,6 +84,7 @@ impl Server {
         };
 
         let response_msg = create_response(&result.as_ref().map(|_| ()));
+
         let response = UnixMessageTx::new(response_msg, Vec::with_capacity(0));
 
         response.send(cfd.as_raw_fd())?;
@@ -108,6 +109,10 @@ pub fn client_connect_fd(
 
     req.send(socket)?;
 
+    let response = UnixMessageRx::receive(socket.as_raw_fd())?;
+
+    parse_response(response.content().as_slice())?;
+
     Ok(vec)
 }
 
@@ -115,7 +120,7 @@ pub fn client_connect<P: ?Sized + NixPath>(
     path: &P,
     vconfig: VectorConfig,
 ) -> Result<ChannelVector, CreateRequestError> {
-    let sockfd = socket(
+    let socket = socket(
         AddressFamily::Unix,
         SockType::SeqPacket,
         SockFlag::empty(),
@@ -124,7 +129,7 @@ pub fn client_connect<P: ?Sized + NixPath>(
 
     let addr = UnixAddr::new(path)?;
 
-    connect(sockfd.as_raw_fd(), &addr)?;
+    connect(socket.as_raw_fd(), &addr)?;
 
     let vec = ChannelVector::new(&vconfig)?;
 
@@ -133,11 +138,11 @@ pub fn client_connect<P: ?Sized + NixPath>(
 
     let req = UnixMessageTx::new(req_msg, fds);
 
-    req.send(sockfd.as_raw_fd())?;
+    req.send(socket.as_raw_fd())?;
 
-    //let response = UnixMessage::receive(sockfd.as_raw_fd())?;
+    let response = UnixMessageRx::receive(socket.as_raw_fd())?;
 
-    //parse_response(response.content().as_slice())?;
+    parse_response(response.content().as_slice())?;
 
     Ok(vec)
 }

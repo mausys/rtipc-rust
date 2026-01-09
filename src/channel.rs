@@ -387,6 +387,14 @@ impl ChannelVector {
 
         fds.push(shmfd);
 
+        let mut producers: Vec<BorrowedFd<'_>> = self
+            .producers
+            .iter()
+            .filter_map(|e| e.as_ref().map(|c| c.eventfd()))
+            .flatten()
+            .collect();
+        fds.append(&mut producers);
+
         let mut consumers: Vec<BorrowedFd<'_>> = self
             .consumers
             .iter()
@@ -395,13 +403,6 @@ impl ChannelVector {
             .collect();
         fds.append(&mut consumers);
 
-        let mut producers: Vec<BorrowedFd<'_>> = self
-            .producers
-            .iter()
-            .filter_map(|e| e.as_ref().map(|c| c.eventfd()))
-            .flatten()
-            .collect();
-        fds.append(&mut producers);
 
         fds
     }

@@ -4,13 +4,13 @@ use nix::sys::socket::{
 };
 use nix::unistd::unlink;
 use nix::NixPath;
-use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
+use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::error::*;
 use crate::protocol::{create_request, create_response, parse_request, parse_response};
 use crate::unix_message::{UnixMessageRx, UnixMessageTx};
-use crate::{ChannelConfig, ChannelVector, VectorConfig, ChannelIn, VectorIn};
+use crate::{ChannelVector, VectorConfig, ChannelIn, VectorIn};
 
 pub struct Server {
     sockfd: OwnedFd,

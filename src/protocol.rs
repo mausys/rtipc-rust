@@ -288,16 +288,16 @@ pub fn create_request(vconfig: &VectorConfig) -> Vec<u8> {
 
 pub(crate) fn create_response(result: &Result<(), &ProcessRequestError>) -> Vec<u8> {
     if result.is_ok() {
-        return vec![0, 0, 0, 0];
+        vec![0, 0, 0, 0]
     } else {
-        return vec![0xff, 0xff, 0xff, 0xff];
+        vec![0xff, 0xff, 0xff, 0xff]
     }
 }
 
 pub(crate) fn parse_response(response: &[u8]) -> Result<(), CreateRequestError> {
     if response != vec![0, 0, 0, 0] {
-        return Err(CreateRequestError::ResponseError);
+        Err(CreateRequestError::ResponseError)
     } else {
-        return Ok(());
+        Ok(())
     }
 }

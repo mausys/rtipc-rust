@@ -15,7 +15,7 @@ mod unix_message;
 #[macro_use]
 extern crate nix;
 
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::fd::{BorrowedFd, OwnedFd};
 use std::{num::NonZeroUsize, sync::atomic::AtomicU32};
 
 #[cfg(feature = "predefined_cacheline_size")]
@@ -84,7 +84,7 @@ pub struct ChannelIn {
 }
 
 impl ChannelIn {
-    fn new(config: &QueueConfig, eventfd: Option<OwnedFd>) -> Self {
+    pub fn new(config: &QueueConfig, eventfd: Option<OwnedFd>) -> Self {
         ChannelIn {
             queue: config.clone(),
             eventfd,
@@ -105,10 +105,10 @@ pub struct ChannelOut<'a> {
 }
 
 impl<'a> ChannelOut<'a> {
-    fn new(config: &QueueConfig, eventfd: Option<BorrowedFd<'a>>) -> Self {
+    pub fn new(config: &QueueConfig, eventfd: Option<BorrowedFd<'a>>) -> Self {
         ChannelOut {
             queue: config.clone(),
-            eventfd: eventfd,
+            eventfd,
         }
     }
 }

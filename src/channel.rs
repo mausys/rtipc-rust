@@ -327,7 +327,7 @@ impl ChannelVector {
         for cin in vin.consumers {
             let shm_size = cin.queue.shm_size();
 
-            let eventfd = cin.eventfd.map(|e| into_eventfd(e)).transpose()?;
+            let eventfd = cin.eventfd.map(into_eventfd).transpose()?;
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
             let channel = ConsumerChannel::new(&cin.queue, chunk, eventfd)?;
@@ -340,7 +340,7 @@ impl ChannelVector {
         for cin in vin.producers {
             let shm_size = cin.queue.shm_size();
 
-            let eventfd = cin.eventfd.map(|e| into_eventfd(e)).transpose()?;
+            let eventfd = cin.eventfd.map(into_eventfd).transpose()?;
 
             let chunk = shm.alloc(shm_offset, shm_size)?;
             let channel = ProducerChannel::new(&cin.queue, chunk, eventfd)?;
@@ -391,7 +391,7 @@ impl ChannelVector {
             .consumers
             .iter()
             .filter_map(|e| e.as_ref().map(|c| c.eventfd()))
-            .filter_map(|f| f)
+            .flatten()
             .collect();
         fds.append(&mut consumers);
 
@@ -399,7 +399,7 @@ impl ChannelVector {
             .producers
             .iter()
             .filter_map(|e| e.as_ref().map(|c| c.eventfd()))
-            .filter_map(|f| f)
+            .flatten()
             .collect();
         fds.append(&mut producers);
 

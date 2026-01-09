@@ -1,6 +1,5 @@
 use nix::errno::Errno;
 use nix::sys::socket::{recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
-use nix::unistd::close;
 use nix::Result;
 use std::collections::VecDeque;
 use std::io::{IoSlice, IoSliceMut};
@@ -65,7 +64,7 @@ impl UnixMessageRx {
                 ControlMessageOwned::ScmRights(fds) => {
                     Ok(fds.iter().map(|fd| unsafe { OwnedFd::from_raw_fd(*fd) }).collect())
                 }
-                _ => return Err(Errno::EBADMSG),
+                _ => Err(Errno::EBADMSG)
             },
         )?;
 

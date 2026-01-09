@@ -4,38 +4,38 @@ use nix::unistd::close;
 use nix::Result;
 use std::collections::VecDeque;
 use std::io::{IoSlice, IoSliceMut};
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::io::RawFd;
 
 //from kernel header file net/scm.h: SCM_MAX_FD
 const MAX_FD: usize = 253;
 
-pub(crate) struct UnixMessage {
+pub(crate) struct UnixMessageTx<'a> {
     content: Vec<u8>,
-    fds: Vec<RawFd>,
-    cleanup: bool,
+    fds: Vec<BorrowedFd<'a>>,
 }
 
-impl UnixMessage {
-    pub(crate) fn new(content: Vec<u8>, fds: Vec<RawFd>) -> Self {
-        Self {
-            content,
-            fds,
-            cleanup: false,
-        }
+pub(crate) struct UnixMessageRx {
+    content: Vec<u8>,
+    fds: Vec<OwnedFd>,
+}
+
+impl<'a> UnixMessageTx<'a> {
+    pub(crate) fn new(content: Vec<u8>, fds: Vec<BorrowedFd<'a>>) -> Self {
+        Self { content, fds }
     }
+
     pub(crate) fn send(&self, socket: RawFd) -> Result<usize> {
         let iov = [IoSlice::new(&self.content)];
+        let fds: Vec::<RawFd> = self.fds.iter().map(|fd| fd.as_raw_fd()).collect();
 
-        let cmsg: &[ControlMessage] = if self.fds.is_empty() {
-            &[]
-        } else {
-            &[ControlMessage::ScmRights(self.fds.as_slice())]
-        };
+        let cmsg: &[ControlMessage] = &[ControlMessage::ScmRights(fds.as_slice())];
 
         sendmsg::<()>(socket, &iov, cmsg, MsgFlags::empty(), None)
     }
+}
 
+impl UnixMessageRx {
     pub(crate) fn receive(socket: RawFd) -> Result<Self> {
         let recv_empty = recvmsg::<()>(
             socket,
@@ -62,16 +62,14 @@ impl UnixMessage {
         let fds = recv_data.cmsgs()?.next().map_or_else(
             || Ok(Vec::with_capacity(0)),
             |fds| match fds {
-                ControlMessageOwned::ScmRights(fds) => Ok(fds),
+                ControlMessageOwned::ScmRights(fds) => {
+                    Ok(fds.iter().map(|fd| unsafe { OwnedFd::from_raw_fd(*fd) }).collect())
+                }
                 _ => return Err(Errno::EBADMSG),
             },
         )?;
 
-        Ok(Self {
-            content,
-            fds,
-            cleanup: true,
-        })
+        Ok(Self { content, fds })
     }
 
     pub(crate) fn content(&self) -> &Vec<u8> {
@@ -79,22 +77,6 @@ impl UnixMessage {
     }
 
     pub(crate) fn take_fds(&mut self) -> VecDeque<OwnedFd> {
-        self.fds
-            .drain(0..)
-            .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
-            .collect()
-    }
-}
-
-impl Drop for UnixMessage {
-    fn drop(&mut self) {
-        if !self.cleanup {
-            return;
-        }
-        for fd in &self.fds {
-            if *fd > 0 {
-                let _ = close(*fd);
-            }
-        }
+        self.fds.drain(0..).collect()
     }
 }

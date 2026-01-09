@@ -4,7 +4,7 @@ use crate::{
     error::*,
     header::{verify_header, write_header, HEADER_SIZE},
     log::error,
-    ChannelParam, VectorParam,
+    ChannelConfig, QueueConfig, VectorConfig,
 };
 
 #[repr(C)]
@@ -16,12 +16,12 @@ struct ChannelEntry {
 }
 
 impl ChannelEntry {
-    fn from_param(param: &ChannelParam) -> Self {
+    fn from_config(config: &ChannelConfig) -> Self {
         Self {
-            additional_messages: param.additional_messages as u32,
-            message_size: param.message_size.get() as u32,
-            eventfd: param.eventfd as u32,
-            info_size: param.info.len() as u32,
+            additional_messages: config.queue.additional_messages as u32,
+            message_size: config.queue.message_size.get() as u32,
+            eventfd: config.eventfd as u32,
+            info_size: config.queue.info.len() as u32,
         }
     }
 }
@@ -36,7 +36,7 @@ struct Layout {
 }
 
 impl Layout {
-    pub(self) fn calc(vparam: &VectorParam) -> Self {
+    pub(self) fn calc(vconfig: &VectorConfig) -> Self {
         let mut offset = HEADER_SIZE;
 
         let vector_info_offset = offset;
@@ -47,19 +47,19 @@ impl Layout {
 
         let channel_table: usize = offset;
 
-        offset += (vparam.producers.len() + vparam.consumers.len()) * size_of::<ChannelEntry>();
+        offset += (vconfig.producers.len() + vconfig.consumers.len()) * size_of::<ChannelEntry>();
 
         let vector_info = offset;
-        offset += vparam.info.len();
+        offset += vconfig.info.len();
 
         let channel_infos = offset;
 
-        for param in &vparam.producers {
-            offset += param.info.len();
+        for config in &vconfig.producers {
+            offset += config.queue.info.len();
         }
 
-        for param in &vparam.consumers {
-            offset += param.info.len();
+        for config in &vconfig.consumers {
+            offset += config.queue.info.len();
         }
 
         let size = offset;
@@ -117,21 +117,21 @@ fn request_write<T: Copy>(
     Ok(())
 }
 
-fn request_write_param(
+fn request_write_channel(
     request: &mut [u8],
-    param: &ChannelParam,
+    config: &ChannelConfig,
     entry_offset: &mut usize,
     info_offset: &mut usize,
 ) {
     let entry_ptr = req_get_mut_ptr::<ChannelEntry>(request, *entry_offset).unwrap();
     unsafe {
-        entry_ptr.write_unaligned(ChannelEntry::from_param(param));
+        entry_ptr.write_unaligned(ChannelEntry::from_config(config));
     }
 
-    if !param.info.is_empty() {
-        request[*info_offset..*info_offset + param.info.len()]
-            .clone_from_slice(param.info.as_slice());
-        *info_offset += param.info.len();
+    if !config.queue.info.is_empty() {
+        request[*info_offset..*info_offset + config.queue.info.len()]
+            .clone_from_slice(config.queue.info.as_slice());
+        *info_offset += config.queue.info.len();
     }
     *entry_offset += size_of::<ChannelEntry>();
 }
@@ -140,7 +140,7 @@ fn request_read_entry(
     request: &[u8],
     entry_offset: &mut usize,
     info_offset: &mut usize,
-) -> Result<ChannelParam, RequestPointerError> {
+) -> Result<ChannelConfig, RequestPointerError> {
     let entry = request_read::<ChannelEntry>(request, *entry_offset).inspect_err(|_| {
         error!("request message too short");
     })?;
@@ -167,15 +167,17 @@ fn request_read_entry(
     *entry_offset += size_of::<ChannelEntry>();
     *info_offset += info_size;
 
-    Ok(ChannelParam {
-        additional_messages: entry.additional_messages as usize,
-        message_size,
-        info,
+    Ok(ChannelConfig {
+        queue: QueueConfig {
+            additional_messages: entry.additional_messages as usize,
+            message_size,
+            info,
+        },
         eventfd: entry.eventfd != 0,
     })
 }
 
-pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessRequestError> {
+pub fn parse_request(request: &[u8]) -> Result<VectorConfig, ProcessRequestError> {
     let header = request
         .get(0..HEADER_SIZE)
         .ok_or(ProcessRequestError::RequestPointerError(
@@ -216,30 +218,30 @@ pub(crate) fn parse_request(request: &[u8]) -> Result<VectorParam, ProcessReques
 
     let info: Vec<u8> = request[vector_info_offset..channel_info_offset].to_vec();
 
-    let mut consumers: Vec<ChannelParam> = Vec::with_capacity(num_consumers);
-    let mut producers: Vec<ChannelParam> = Vec::with_capacity(num_producers);
+    let mut consumers: Vec<ChannelConfig> = Vec::with_capacity(num_consumers);
+    let mut producers: Vec<ChannelConfig> = Vec::with_capacity(num_producers);
 
     for _ in 0..num_consumers {
-        let param = request_read_entry(request, &mut offset, &mut channel_info_offset)?;
+        let config = request_read_entry(request, &mut offset, &mut channel_info_offset)?;
 
-        consumers.push(param);
+        consumers.push(config);
     }
 
     for _ in 0..num_producers {
-        let param = request_read_entry(request, &mut offset, &mut channel_info_offset)?;
+        let config = request_read_entry(request, &mut offset, &mut channel_info_offset)?;
 
-        producers.push(param);
+        producers.push(config);
     }
 
-    Ok(VectorParam {
+    Ok(VectorConfig {
         consumers,
         producers,
         info,
     })
 }
 
-pub(crate) fn create_request(vparam: &VectorParam) -> Vec<u8> {
-    let layout = Layout::calc(vparam);
+pub fn create_request(vconfig: &VectorConfig) -> Vec<u8> {
+    let layout = Layout::calc(vconfig);
 
     let mut request: Vec<u8> = vec![0; layout.size];
 
@@ -248,37 +250,37 @@ pub(crate) fn create_request(vparam: &VectorParam) -> Vec<u8> {
     request_write(
         request.as_mut_slice(),
         layout.vector_info_offset,
-        &(vparam.info.len() as u32),
+        &(vconfig.info.len() as u32),
     )
     .unwrap();
 
     request_write(
         request.as_mut_slice(),
         layout.num_channels[0],
-        &(vparam.producers.len() as u32),
+        &(vconfig.producers.len() as u32),
     )
     .unwrap();
 
     request_write(
         request.as_mut_slice(),
         layout.num_channels[1],
-        &(vparam.consumers.len() as u32),
+        &(vconfig.consumers.len() as u32),
     )
     .unwrap();
 
     let mut entry_offset = layout.channel_table;
 
-    request[layout.vector_info..layout.vector_info + vparam.info.len()]
-        .clone_from_slice(vparam.info.as_slice());
+    request[layout.vector_info..layout.vector_info + vconfig.info.len()]
+        .clone_from_slice(vconfig.info.as_slice());
 
     let mut info_offset = layout.channel_infos;
 
-    for param in vparam.producers.iter() {
-        request_write_param(&mut request, param, &mut entry_offset, &mut info_offset);
+    for config in vconfig.producers.iter() {
+        request_write_channel(&mut request, config, &mut entry_offset, &mut info_offset);
     }
 
-    for param in vparam.consumers.iter() {
-        request_write_param(&mut request, param, &mut entry_offset, &mut info_offset);
+    for config in vconfig.consumers.iter() {
+        request_write_channel(&mut request, config, &mut entry_offset, &mut info_offset);
     }
 
     request
@@ -293,7 +295,7 @@ pub(crate) fn create_response(result: &Result<(), &ProcessRequestError>) -> Vec<
 }
 
 pub(crate) fn parse_response(response: &[u8]) -> Result<(), CreateRequestError> {
-    if response!= vec![0, 0, 0, 0] {
+    if response != vec![0, 0, 0, 0] {
         return Err(CreateRequestError::ResponseError);
     } else {
         return Ok(());

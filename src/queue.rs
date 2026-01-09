@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering;
 use crate::cacheline_aligned;
 use crate::error::*;
 use crate::shm::{Chunk, Span};
+use crate::QueueConfig;
 
 use crate::AtomicIndex;
 use crate::Index;
@@ -70,15 +71,11 @@ struct Queue {
 }
 
 impl Queue {
-    pub fn new(
-        chunk: Chunk,
-        additional_messages: usize,
-        message_size: NonZeroUsize,
-    ) -> Result<Self, ShmPointerError> {
-        let queue_len = additional_messages + MIN_MSGS;
+    pub fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmPointerError> {
+        let queue_len = config.additional_messages + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
-        let message_size = NonZeroUsize::new(cacheline_aligned(message_size.get())).unwrap();
+        let message_size = NonZeroUsize::new(cacheline_aligned(config.message_size.get())).unwrap();
 
         let mut offset_index = 0;
         let mut offset = cacheline_aligned(queue_size);
@@ -123,6 +120,10 @@ impl Queue {
     pub(crate) fn init(&self) {
         self.tail_store(INVALID_INDEX);
         self.head_store(INVALID_INDEX);
+    }
+
+    pub fn additional_messages(&self) -> usize {
+        self.chain.len() - MIN_MSGS
     }
 
     pub(self) fn message_size(&self) -> NonZeroUsize {
@@ -192,12 +193,8 @@ pub struct ProducerQueue {
 }
 
 impl ProducerQueue {
-    pub(crate) fn new(
-        chunk: Chunk,
-        additional_messages: usize,
-        message_size: NonZeroUsize,
-    ) -> Result<Self, ShmPointerError> {
-        let queue = Queue::new(chunk, additional_messages, message_size)?;
+    pub(crate) fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmPointerError> {
+        let queue = Queue::new(chunk, config)?;
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
         let last = queue_len - 1;
@@ -225,6 +222,10 @@ impl ProducerQueue {
 
     pub(crate) fn message_size(&self) -> NonZeroUsize {
         self.queue.message_size()
+    }
+
+    pub(crate) fn additional_messages(&self) -> usize {
+        self.queue.additional_messages()
     }
 
     pub(crate) fn current_message(&self) -> *mut () {
@@ -438,12 +439,8 @@ pub struct ConsumerQueue {
 }
 
 impl ConsumerQueue {
-    pub(crate) fn new(
-        chunk: Chunk,
-        additional_messages: usize,
-        message_size: NonZeroUsize,
-    ) -> Result<Self, ShmPointerError> {
-        let queue = Queue::new(chunk, additional_messages, message_size)?;
+    pub(crate) fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmPointerError> {
+        let queue = Queue::new(chunk, config)?;
         Ok(Self { queue, current: 0 })
     }
 
@@ -453,6 +450,10 @@ impl ConsumerQueue {
 
     pub(crate) fn message_size(&self) -> NonZeroUsize {
         self.queue.message_size()
+    }
+
+    pub(crate) fn additional_messages(&self) -> usize {
+        self.queue.additional_messages()
     }
 
     pub(crate) fn current_message(&self) -> Option<*const ()> {

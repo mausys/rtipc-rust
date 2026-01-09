@@ -15,6 +15,7 @@ mod unix_message;
 #[macro_use]
 extern crate nix;
 
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::{num::NonZeroUsize, sync::atomic::AtomicU32};
 
 #[cfg(feature = "predefined_cacheline_size")]
@@ -42,14 +43,19 @@ pub(crate) fn cacheline_aligned(size: usize) -> usize {
 }
 
 #[derive(Clone)]
-pub struct ChannelParam {
+pub struct QueueConfig {
     pub additional_messages: usize,
     pub message_size: NonZeroUsize,
-    pub eventfd: bool,
     pub info: Vec<u8>,
 }
 
-impl ChannelParam {
+#[derive(Clone)]
+pub struct ChannelConfig {
+    pub queue: QueueConfig,
+    pub eventfd: bool,
+}
+
+impl QueueConfig {
     fn data_size(&self) -> usize {
         let n = MIN_MSGS + self.additional_messages;
 
@@ -66,21 +72,63 @@ impl ChannelParam {
     }
 }
 
-pub struct VectorParam {
-    pub producers: Vec<ChannelParam>,
-    pub consumers: Vec<ChannelParam>,
+pub struct VectorConfig {
+    pub producers: Vec<ChannelConfig>,
+    pub consumers: Vec<ChannelConfig>,
     pub info: Vec<u8>,
 }
 
-pub(crate) fn calc_shm_size(group0: &[ChannelParam], group1: &[ChannelParam]) -> usize {
+pub struct ChannelIn {
+    pub queue: QueueConfig,
+    pub eventfd: Option<OwnedFd>,
+}
+
+impl ChannelIn {
+    fn new(config: &QueueConfig, eventfd: Option<OwnedFd>) -> Self {
+        ChannelIn {
+            queue: config.clone(),
+            eventfd,
+        }
+    }
+}
+
+pub struct VectorIn {
+    pub producers: Vec<ChannelIn>,
+    pub consumers: Vec<ChannelIn>,
+    pub info: Vec<u8>,
+    pub shmfd: OwnedFd,
+}
+
+pub struct ChannelOut<'a> {
+    pub queue: QueueConfig,
+    pub eventfd: Option<BorrowedFd<'a>>,
+}
+
+impl<'a> ChannelOut<'a> {
+    fn new(config: &QueueConfig, eventfd: Option<BorrowedFd<'a>>) -> Self {
+        ChannelOut {
+            queue: config.clone(),
+            eventfd: eventfd,
+        }
+    }
+}
+
+pub struct VectorOut<'a> {
+    pub producers: Vec<ChannelOut<'a>>,
+    pub consumers: Vec<ChannelOut<'a>>,
+    pub info: &'a Vec<u8>,
+    pub shmfd: BorrowedFd<'a>,
+}
+
+pub(crate) fn calc_shm_size(group0: &[ChannelConfig], group1: &[ChannelConfig]) -> usize {
     let mut size = 0;
 
-    for param in group0 {
-        size += param.shm_size().get();
+    for config in group0 {
+        size += config.queue.shm_size().get();
     }
 
-    for param in group1 {
-        size += param.shm_size().get();
+    for config in group1 {
+        size += config.queue.shm_size().get();
     }
 
     size

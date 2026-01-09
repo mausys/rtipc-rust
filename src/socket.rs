@@ -4,14 +4,13 @@ use nix::sys::socket::{
 };
 use nix::unistd::unlink;
 use nix::NixPath;
-use std::os::fd::{OwnedFd, RawFd};
+use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::error::*;
 use crate::protocol::{create_request, create_response, parse_request, parse_response};
-use crate::unix_message::UnixMessage;
-use crate::ChannelVector;
-use crate::VectorParam;
+use crate::unix_message::{UnixMessageRx, UnixMessageTx};
+use crate::{ChannelConfig, ChannelVector, VectorConfig, ChannelIn, VectorIn};
 
 pub struct Server {
     sockfd: OwnedFd,
@@ -37,12 +36,46 @@ impl Server {
         F: Fn(&ChannelVector) -> bool,
     {
         let cfd = accept(self.sockfd.as_raw_fd())?;
-        let mut req = UnixMessage::receive(cfd.as_raw_fd())?;
+        let mut req = UnixMessageRx::receive(cfd.as_raw_fd())?;
+
+        let mut fds = req.take_fds();
+        let vconfig = parse_request(req.content())?;
+
+        let shmfd = fds.pop_front().ok_or(ProcessRequestError::MissingFileDescriptor)?;
+
+        let mut consumers = Vec::<ChannelIn>::new();
+
+        for config in vconfig.consumers {
+            let channel = if config.eventfd {
+                let fd = fds.pop_front().ok_or(ProcessRequestError::MissingFileDescriptor)?;
+                ChannelIn{queue: config.queue, eventfd: Some(fd)}
+            } else {
+                ChannelIn{queue: config.queue, eventfd: None}
+            };
+            consumers.push(channel);
+        }
+
+        let mut producers = Vec::<ChannelIn>::new();
+
+        for config in vconfig.producers {
+            let channel = if config.eventfd {
+            let fd = fds.pop_front().ok_or(ProcessRequestError::MissingFileDescriptor)?;
+                ChannelIn{queue: config.queue, eventfd: Some(fd)}
+            } else {
+                ChannelIn{queue: config.queue, eventfd: None}
+            };
+            producers.push(channel);
+        }
+
+        let vin = VectorIn {
+            consumers,
+            producers,
+            info: vconfig.info,
+            shmfd,
+        };
 
         let result = {
-            let fds = req.take_fds();
-            let vparam = parse_request(req.content())?;
-            let vector = ChannelVector::map(&vparam, fds)?;
+            let vector = ChannelVector::map(vin)?;
             if !filter(&vector) {
                 Err(ProcessRequestError::ResponseError)
             } else {
@@ -51,7 +84,7 @@ impl Server {
         };
 
         let response_msg = create_response(&result.as_ref().map(|_| ()));
-        let response = UnixMessage::new(response_msg, Vec::with_capacity(0));
+        let response = UnixMessageTx::new(response_msg, Vec::with_capacity(0));
 
         response.send(cfd.as_raw_fd())?;
 
@@ -65,11 +98,13 @@ impl Server {
 
 pub fn client_connect_fd(
     socket: RawFd,
-    vparam: VectorParam,
+    vconfig: VectorConfig,
 ) -> Result<ChannelVector, CreateRequestError> {
-    let (vec, fds) = ChannelVector::new(&vparam)?;
-    let req_msg = create_request(&vparam);
-    let req = UnixMessage::new(req_msg, fds);
+    let vec = ChannelVector::new(&vconfig)?;
+    let req_msg = create_request(&vconfig);
+    let fds = vec.collect_fds();
+
+    let req = UnixMessageTx::new(req_msg, fds);
 
     req.send(socket)?;
 
@@ -78,7 +113,7 @@ pub fn client_connect_fd(
 
 pub fn client_connect<P: ?Sized + NixPath>(
     path: &P,
-    vparam: VectorParam,
+    vconfig: VectorConfig,
 ) -> Result<ChannelVector, CreateRequestError> {
     let sockfd = socket(
         AddressFamily::Unix,
@@ -91,16 +126,18 @@ pub fn client_connect<P: ?Sized + NixPath>(
 
     connect(sockfd.as_raw_fd(), &addr)?;
 
-    let (vec, fds) = ChannelVector::new(&vparam)?;
+    let vec = ChannelVector::new(&vconfig)?;
 
-    let req_msg = create_request(&vparam);
-    let req = UnixMessage::new(req_msg, fds);
+    let req_msg = create_request(&vconfig);
+    let fds = vec.collect_fds();
+
+    let req = UnixMessageTx::new(req_msg, fds);
 
     req.send(sockfd.as_raw_fd())?;
 
-    let response = UnixMessage::receive(sockfd.as_raw_fd())?;
+    //let response = UnixMessage::receive(sockfd.as_raw_fd())?;
 
-    parse_response(response.content().as_slice())?;
+    //parse_response(response.content().as_slice())?;
 
     Ok(vec)
 }

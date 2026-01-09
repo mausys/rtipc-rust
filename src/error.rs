@@ -33,13 +33,12 @@ pub enum ProcessRequestError {
 
 #[derive(Debug)]
 pub enum CreateRequestError {
-    InvalidParam,
+    InvalidConfig,
     Errno(Errno),
     RequestPointerError(RequestPointerError),
     ShmPoniterError(ShmPointerError),
     HeaderError(HeaderError),
     ResponseError,
-
 }
 
 #[derive(Debug)]

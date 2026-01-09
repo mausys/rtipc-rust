@@ -4,7 +4,7 @@ use std::{
     fmt,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{AsRawFd, OwnedFd, RawFd},
+    os::fd::{BorrowedFd, OwnedFd, AsFd},
     ptr::NonNull,
     sync::{Arc, Weak},
 };
@@ -123,8 +123,8 @@ impl SharedMemory {
         Self::create(fd)
     }
 
-    pub(crate) fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
+    pub(crate) fn fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 

@@ -45,23 +45,8 @@ impl VectorResource {
     ) -> Result<Self, TransferError> {
         check_memfd(shmfd.as_fd())?;
 
-        let mut producers = Vec::<ChannelResource>::with_capacity(vconfig.producers.len());
         let mut consumers = Vec::<ChannelResource>::with_capacity(vconfig.consumers.len());
-
-        for config in &vconfig.producers {
-            let eventfd = if config.eventfd {
-                let eventfd = eventfds
-                    .pop_front()
-                    .ok_or(TransferError::MissingFileDescriptor)?;
-                Some(eventfd)
-            } else {
-                None
-            };
-
-            let channel = ChannelResource::new(&config.queue, eventfd)?;
-
-            producers.push(channel);
-        }
+        let mut producers = Vec::<ChannelResource>::with_capacity(vconfig.producers.len());
 
         for config in &vconfig.consumers {
             let eventfd = if config.eventfd {
@@ -76,6 +61,21 @@ impl VectorResource {
             let channel = ChannelResource::new(&config.queue, eventfd)?;
 
             consumers.push(channel);
+        }
+
+        for config in &vconfig.producers {
+            let eventfd = if config.eventfd {
+                let eventfd = eventfds
+                    .pop_front()
+                    .ok_or(TransferError::MissingFileDescriptor)?;
+                Some(eventfd)
+            } else {
+                None
+            };
+
+            let channel = ChannelResource::new(&config.queue, eventfd)?;
+
+            producers.push(channel);
         }
 
         Ok(Self {

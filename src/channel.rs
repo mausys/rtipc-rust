@@ -160,6 +160,7 @@ impl<T: Copy> Consumer<T> {
 
 pub(crate) struct Channel {
     queue: Queue,
+    info: Vec<u8>,
     eventfd: Option<EventFd>,
 }
 
@@ -182,7 +183,7 @@ impl ChannelVector {
             let shm_size = rsc.config.shm_size();
 
             let chunk = shm.alloc(*shm_offset, shm_size)?;
-            let queue = Queue::new(chunk, rsc.config)?;
+            let queue = Queue::new(chunk, &rsc.config)?;
 
             if shm_init {
                 queue.init();
@@ -190,6 +191,7 @@ impl ChannelVector {
 
             let channel = Channel {
                 queue,
+                info: rsc.config.info,
                 eventfd: rsc.eventfd,
             };
 
@@ -221,6 +223,14 @@ impl ChannelVector {
             consumers,
             info: vrsc.info,
         })
+    }
+
+    pub fn consumer_info(&self, index: usize) -> Option<&Vec<u8>> {
+        self.consumers.get(index)?.as_ref().map(|c| &c.info)
+    }
+
+    pub fn producer_info(&self, index: usize) -> Option<&Vec<u8>> {
+        self.producers.get(index)?.as_ref().map(|c| &c.info)
     }
 
     pub fn take_consumer<T: Copy>(&mut self, index: usize) -> Option<Consumer<T>> {

@@ -71,7 +71,7 @@ pub(crate) struct Queue {
 }
 
 impl Queue {
-    pub(crate) fn new(chunk: Chunk, config: QueueConfig) -> Result<Self, ShmMapError> {
+    pub(crate) fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmMapError> {
         let queue_len = config.additional_messages + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;

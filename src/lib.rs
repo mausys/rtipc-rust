@@ -22,7 +22,7 @@ use crate::cache_env::max_cacheline_size;
 #[cfg(not(feature = "predefined_cacheline_size"))]
 use crate::cache_linux::max_cacheline_size;
 
-pub use channel::{Consumer, Producer};
+pub use channel::{Consumer, Producer, ChannelVector};
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
 pub use resource::VectorResource;

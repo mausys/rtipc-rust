@@ -21,7 +21,7 @@ pub struct ChannelResource {
 
 impl ChannelResource {
     pub fn new(config: &QueueConfig, eventfd_raw: Option<OwnedFd>) -> Result<Self, Errno> {
-        let eventfd = eventfd_raw.map(|fd| into_eventfd(fd)).transpose()?;
+        let eventfd = eventfd_raw.map(into_eventfd).transpose()?;
         Ok(Self {
             config: config.clone(),
             eventfd,

@@ -4,7 +4,7 @@ use nix::sys::socket::{
 };
 use nix::unistd::unlink;
 use nix::NixPath;
-use std::os::fd::{OwnedFd, RawFd};
+use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::channel::ChannelVector;
@@ -33,12 +33,11 @@ impl Server {
         Ok(Self { sockfd, addr })
     }
 
-    pub fn conditional_accept<F>(&self, filter: F) -> Result<ChannelVector, TransferError>
+    fn handle_request<F>(socket: RawFd, filter: F) -> Result<ChannelVector, TransferError>
     where
         F: Fn(&VectorResource) -> bool,
     {
-        let cfd = accept(self.sockfd.as_raw_fd())?;
-        let mut req = UnixMessageRx::receive(cfd.as_raw_fd())?;
+        let mut req = UnixMessageRx::receive(socket.as_raw_fd())?;
 
         let mut fds = req.take_fds();
         let vconfig = parse_request(req.content())?;
@@ -55,13 +54,23 @@ impl Server {
 
         let vec = ChannelVector::new(rsc)?;
 
-        let response_msg = create_response(true);
+        Ok(vec)
+    }
+
+    pub fn conditional_accept<F>(&self, filter: F) -> Result<ChannelVector, TransferError>
+    where
+        F: Fn(&VectorResource) -> bool,
+    {
+        let socket = accept(self.sockfd.as_raw_fd())?;
+
+        let result = Self::handle_request(socket, filter);
+
+        let response_msg = create_response(result.is_ok());
 
         let response = UnixMessageTx::new(response_msg, Vec::with_capacity(0));
 
-        response.send(cfd.as_raw_fd())?;
-
-        Ok(vec)
+        response.send(socket)?;
+        result
     }
 
     pub fn accept(&self) -> Result<ChannelVector, TransferError> {

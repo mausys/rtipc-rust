@@ -4,21 +4,18 @@ use std::{
     fmt,
     mem::size_of,
     num::NonZeroUsize,
-    os::fd::{BorrowedFd, OwnedFd, AsFd},
+    os::fd::OwnedFd,
     ptr::NonNull,
     sync::{Arc, Weak},
 };
 
 use nix::{
     errno::Errno,
-    fcntl::{fcntl, SealFlag, F_ADD_SEALS},
     libc::c_void,
     sys::{
-        memfd::{memfd_create, MFdFlags},
         mman::{mlock, mmap, munmap, MapFlags, ProtFlags},
         stat::fstat,
     },
-    unistd::ftruncate,
 };
 
 use crate::error::*;
@@ -37,16 +34,16 @@ pub(crate) struct Chunk {
 }
 
 impl Chunk {
-    pub(crate) fn get_ptr<T>(&self, offset: usize) -> Result<*mut T, ShmPointerError> {
+    pub(crate) fn get_ptr<T>(&self, offset: usize) -> Result<*mut T, ShmMapError> {
         let size = NonZeroUsize::new(size_of::<T>()).unwrap();
         let ptr = self.get_span_ptr(&Span { offset, size })?;
 
         Ok(ptr.cast())
     }
 
-    pub(crate) fn get_span_ptr(&self, span: &Span) -> Result<*mut (), ShmPointerError> {
+    pub(crate) fn get_span_ptr(&self, span: &Span) -> Result<*mut (), ShmMapError> {
         if span.offset + span.size.get() > self.size.get() {
-            return Err(ShmPointerError::OutOfBounds);
+            return Err(ShmMapError::OutOfBounds);
         }
 
         let ptr: *mut () = unsafe { self.shm.ptr.byte_add(self.offset + span.offset) };
@@ -57,16 +54,15 @@ impl Chunk {
 
 #[derive(Debug)]
 pub struct SharedMemory {
-    fd: OwnedFd,
     me: Weak<Self>,
     ptr: *mut (),
     size: NonZeroUsize,
 }
 
 impl SharedMemory {
-    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, ShmPointerError> {
+    pub fn alloc(&self, offset: usize, size: NonZeroUsize) -> Result<Chunk, ShmMapError> {
         if offset + size.get() > self.size.get() {
-            return Err(ShmPointerError::OutOfBounds);
+            return Err(ShmMapError::OutOfBounds);
         }
 
         Ok(Chunk {
@@ -76,16 +72,7 @@ impl SharedMemory {
         })
     }
 
-    fn init<F: std::os::fd::AsFd>(fd: F, size: NonZeroUsize) -> Result<(), Errno> {
-        ftruncate(&fd, size.get() as i64)?;
-        fcntl(
-            &fd,
-            F_ADD_SEALS(SealFlag::F_SEAL_GROW | SealFlag::F_SEAL_SHRINK | SealFlag::F_SEAL_SEAL),
-        )?;
-        Ok(())
-    }
-
-    fn create(fd: OwnedFd) -> Result<Arc<Self>, Errno> {
+    pub fn new(fd: OwnedFd) -> Result<Arc<Self>, Errno> {
         let stat = fstat(&fd)?;
 
         let size = NonZeroUsize::new(stat.st_size as usize).ok_or(Errno::EBADFD)?;
@@ -107,24 +94,9 @@ impl SharedMemory {
 
         Ok(Arc::new_cyclic(|me| Self {
             me: me.clone(),
-            fd,
             ptr: ptr.as_ptr().cast(),
             size,
         }))
-    }
-
-    pub(crate) fn new(size: NonZeroUsize) -> Result<Arc<Self>, Errno> {
-        let fd: OwnedFd = memfd_create("rtipc", MFdFlags::MFD_ALLOW_SEALING)?;
-        Self::init(&fd, size)?;
-        Self::create(fd)
-    }
-
-    pub(crate) fn from_fd(fd: OwnedFd) -> Result<Arc<Self>, Errno> {
-        Self::create(fd)
-    }
-
-    pub(crate) fn fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
     }
 }
 

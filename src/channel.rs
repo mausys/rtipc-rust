@@ -2,136 +2,40 @@ use std::{
     borrow::BorrowMut,
     marker::PhantomData,
     mem::size_of,
-    num::NonZeroUsize,
     os::fd::{AsFd, BorrowedFd},
-    sync::Arc,
 };
 
 use nix::sys::eventfd::EventFd;
 
 use crate::{
-    calc_shm_size,
     error::*,
-    fd::{eventfd, into_eventfd},
-    queue::{ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue},
-    shm::{Chunk, SharedMemory},
-    ChannelOut, QueueConfig, VectorConfig, VectorIn, VectorOut,
+    queue::{
+        ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue, Queue,
+    },
+    resource::{ChannelResource, VectorResource},
+    shm::SharedMemory,
 };
-
-pub(crate) struct ProducerChannel {
-    queue: ProducerQueue,
-    info: Vec<u8>,
-    eventfd: Option<EventFd>,
-}
-
-impl ProducerChannel {
-    pub(crate) fn new(
-        config: &QueueConfig,
-        chunk: Chunk,
-        eventfd: Option<EventFd>,
-    ) -> Result<Self, ShmPointerError> {
-        let queue = ProducerQueue::new(chunk, config)?;
-
-        Ok(Self {
-            queue,
-            info: config.info.clone(),
-            eventfd,
-        })
-    }
-
-    pub(crate) fn init(&self) {
-        self.queue.init();
-    }
-
-    pub(crate) fn message_size(&self) -> NonZeroUsize {
-        self.queue.message_size()
-    }
-
-    pub fn eventfd(&self) -> Option<BorrowedFd<'_>> {
-        self.eventfd.as_ref().map(|e| e.as_fd())
-    }
-
-    pub fn info(&self) -> &Vec<u8> {
-        &self.info
-    }
-
-    pub fn channel_out(&self) -> ChannelOut {
-        ChannelOut {
-            queue: QueueConfig {
-                additional_messages: self.queue.additional_messages(),
-                message_size: self.queue.message_size(),
-                info: self.info.clone(),
-            },
-            eventfd: self.eventfd.as_ref().map(|e| e.as_fd()),
-        }
-    }
-}
-
-pub(crate) struct ConsumerChannel {
-    queue: ConsumerQueue,
-    info: Vec<u8>,
-    eventfd: Option<EventFd>,
-}
-
-impl ConsumerChannel {
-    pub(crate) fn new(
-        config: &QueueConfig,
-        chunk: Chunk,
-        eventfd: Option<EventFd>,
-    ) -> Result<Self, ShmPointerError> {
-        let queue = ConsumerQueue::new(chunk, config)?;
-
-        Ok(Self {
-            queue,
-            info: config.info.clone(),
-            eventfd,
-        })
-    }
-
-    pub(crate) fn init(&self) {
-        self.queue.init();
-    }
-
-    pub(crate) fn message_size(&self) -> NonZeroUsize {
-        self.queue.message_size()
-    }
-
-    pub fn info(&self) -> &Vec<u8> {
-        &self.info
-    }
-
-    pub fn eventfd(&self) -> Option<BorrowedFd<'_>> {
-        self.eventfd.as_ref().map(|e| e.as_fd())
-    }
-
-    pub fn channel_out(&self) -> ChannelOut {
-        ChannelOut {
-            queue: QueueConfig {
-                additional_messages: self.queue.additional_messages(),
-                message_size: self.queue.message_size(),
-                info: self.info.clone(),
-            },
-            eventfd: self.eventfd.as_ref().map(|e| e.as_fd()),
-        }
-    }
-}
 
 pub struct Producer<T: Copy> {
     queue: ProducerQueue,
     eventfd: Option<EventFd>,
     cache: Option<Box<T>>,
+    _type: PhantomData<T>,
 }
 
 impl<T: Copy> Producer<T> {
-    fn try_from(channel: ProducerChannel) -> Option<Self> {
-        if size_of::<T>() > channel.message_size().get() {
-            return None;
+    fn new(channel: Channel) -> Result<Self, ShmMapError> {
+        if size_of::<T>() > channel.queue.message_size().get() {
+            return Err(ShmMapError::OutOfBounds);
         }
 
-        Some(Self {
-            queue: channel.queue,
+        let queue = ProducerQueue::new(channel.queue);
+
+        Ok(Self {
+            queue,
             eventfd: channel.eventfd,
             cache: None,
+            _type: PhantomData,
         })
     }
 
@@ -200,13 +104,15 @@ pub struct Consumer<T: Copy> {
 }
 
 impl<T: Copy> Consumer<T> {
-    fn try_from(channel: ConsumerChannel) -> Option<Self> {
-        if size_of::<T>() > channel.message_size().get() {
-            return None;
+    fn new(channel: Channel) -> Result<Self, ShmMapError> {
+        if size_of::<T>() > channel.queue.message_size().get() {
+            return Err(ShmMapError::OutOfBounds);
         }
 
-        Some(Self {
-            queue: channel.queue,
+        let queue = ConsumerQueue::new(channel.queue);
+
+        Ok(Self {
+            queue,
             eventfd: channel.eventfd,
             _type: PhantomData,
         })
@@ -252,177 +158,84 @@ impl<T: Copy> Consumer<T> {
     }
 }
 
+pub(crate) struct Channel {
+    queue: Queue,
+    eventfd: Option<EventFd>,
+}
+
 pub struct ChannelVector {
-    producers: Vec<Option<ProducerChannel>>,
-    consumers: Vec<Option<ConsumerChannel>>,
+    producers: Vec<Option<Channel>>,
+    consumers: Vec<Option<Channel>>,
     info: Vec<u8>,
-    shm: Arc<SharedMemory>,
 }
 
 impl ChannelVector {
-    pub(crate) fn new(vconfig: &VectorConfig) -> Result<Self, CreateRequestError> {
-        let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vconfig.producers.len());
-        let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vconfig.consumers.len());
+    fn create_channels(
+        rscs: Vec<ChannelResource>,
+        shm: &SharedMemory,
+        shm_offset: &mut usize,
+        shm_init: bool,
+    ) -> Result<Vec<Option<Channel>>, ShmMapError> {
+        let mut channels = Vec::<Option<Channel>>::with_capacity(rscs.len());
 
-        let shm_size = NonZeroUsize::new(calc_shm_size(&vconfig.producers, &vconfig.consumers))
-            .ok_or(CreateRequestError::InvalidConfig)?;
+        for rsc in rscs {
+            let shm_size = rsc.config.shm_size();
 
-        let shm = SharedMemory::new(shm_size)?;
+            let chunk = shm.alloc(*shm_offset, shm_size)?;
+            let queue = Queue::new(chunk, rsc.config)?;
+
+            if shm_init {
+                queue.init();
+            }
+
+            let channel = Channel {
+                queue,
+                eventfd: rsc.eventfd,
+            };
+
+            channels.push(Some(channel));
+
+            *shm_offset += shm_size.get();
+        }
+        Ok(channels)
+    }
+
+    pub(crate) fn new(vrsc: VectorResource) -> Result<Self, ResourceError> {
+        let shm = SharedMemory::new(vrsc.shmfd)?;
 
         let mut shm_offset = 0;
 
-        for config in &vconfig.producers {
-            let eventfd = if config.eventfd {
-                let efd = eventfd()?;
-                Some(efd)
-            } else {
-                None
-            };
+        let consumers;
+        let producers;
 
-            let shm_size = config.queue.shm_size();
-
-            let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ProducerChannel::new(&config.queue, chunk, eventfd)?;
-            channel.init();
-
-            producers.push(Some(channel));
-
-            shm_offset += shm_size.get();
-        }
-
-        for config in &vconfig.consumers {
-            let eventfd = if config.eventfd {
-                let efd = eventfd()?;
-                Some(efd)
-            } else {
-                None
-            };
-            let shm_size = config.queue.shm_size();
-
-            let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ConsumerChannel::new(&config.queue, chunk, eventfd)?;
-            channel.init();
-
-            consumers.push(Some(channel));
-
-            shm_offset += shm_size.get();
+        if vrsc.owner {
+            producers = Self::create_channels(vrsc.producers, &shm, &mut shm_offset, !vrsc.owner)?;
+            consumers = Self::create_channels(vrsc.consumers, &shm, &mut shm_offset, !vrsc.owner)?;
+        } else {
+            consumers = Self::create_channels(vrsc.consumers, &shm, &mut shm_offset, !vrsc.owner)?;
+            producers = Self::create_channels(vrsc.producers, &shm, &mut shm_offset, !vrsc.owner)?;
         }
 
         Ok(Self {
             producers,
             consumers,
-            info: vconfig.info.clone(),
-            shm,
+            info: vrsc.info,
         })
-    }
-
-    pub(crate) fn map(vin: VectorIn) -> Result<Self, ProcessRequestError> {
-        let shm = SharedMemory::from_fd(vin.shmfd)?;
-
-        let mut consumers = Vec::<Option<ConsumerChannel>>::with_capacity(vin.consumers.len());
-        let mut producers = Vec::<Option<ProducerChannel>>::with_capacity(vin.producers.len());
-
-        let mut shm_offset = 0;
-
-        for cin in vin.consumers {
-            let shm_size = cin.queue.shm_size();
-
-            let eventfd = cin.eventfd.map(into_eventfd).transpose()?;
-
-            let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ConsumerChannel::new(&cin.queue, chunk, eventfd)?;
-
-            consumers.push(Some(channel));
-
-            shm_offset += shm_size.get();
-        }
-
-        for cin in vin.producers {
-            let shm_size = cin.queue.shm_size();
-
-            let eventfd = cin.eventfd.map(into_eventfd).transpose()?;
-
-            let chunk = shm.alloc(shm_offset, shm_size)?;
-            let channel = ProducerChannel::new(&cin.queue, chunk, eventfd)?;
-
-            producers.push(Some(channel));
-
-            shm_offset += shm_size.get();
-        }
-
-        Ok(Self {
-            producers,
-            consumers,
-            info: vin.info,
-            shm,
-        })
-    }
-
-    pub fn consumer_info(&self, index: usize) -> Option<&Vec<u8>> {
-        self.consumers.get(index)?.as_ref().map(|c| c.info())
-    }
-
-    pub fn producer_info(&self, index: usize) -> Option<&Vec<u8>> {
-        self.producers.get(index)?.as_ref().map(|c| c.info())
     }
 
     pub fn take_consumer<T: Copy>(&mut self, index: usize) -> Option<Consumer<T>> {
         let channel = self.consumers.get_mut(index)?.take()?;
-        Consumer::try_from(channel)
+        let consumer = Consumer::new(channel).ok()?;
+        Some(consumer)
     }
 
     pub fn take_producer<T: Copy>(&mut self, index: usize) -> Option<Producer<T>> {
         let channel = self.producers.get_mut(index)?.take()?;
-        Producer::try_from(channel)
+        let producer = Producer::new(channel).ok()?;
+        Some(producer)
     }
 
     pub fn info(&self) -> &Vec<u8> {
         &self.info
-    }
-
-    pub fn collect_fds(&self) -> Vec<BorrowedFd<'_>> {
-        let mut fds = Vec::<BorrowedFd<'_>>::new();
-
-        let shmfd = self.shm.fd();
-
-        fds.push(shmfd);
-
-        let mut producers: Vec<BorrowedFd<'_>> = self
-            .producers
-            .iter()
-            .filter_map(|e| e.as_ref().map(|c| c.eventfd()))
-            .flatten()
-            .collect();
-        fds.append(&mut producers);
-
-        let mut consumers: Vec<BorrowedFd<'_>> = self
-            .consumers
-            .iter()
-            .filter_map(|e| e.as_ref().map(|c| c.eventfd()))
-            .flatten()
-            .collect();
-        fds.append(&mut consumers);
-
-
-        fds
-    }
-
-    pub fn vector_out(&self) -> VectorOut {
-        let consumers: Vec<ChannelOut<'_>> = self
-            .consumers
-            .iter()
-            .filter_map(|o| o.as_ref().map(|c| c.channel_out()))
-            .collect();
-        let producers: Vec<ChannelOut<'_>> = self
-            .producers
-            .iter()
-            .filter_map(|o| o.as_ref().map(|c| c.channel_out()))
-            .collect();
-        VectorOut {
-            consumers,
-            producers,
-            shmfd: self.shm.fd(),
-            info: &self.info,
-        }
     }
 }

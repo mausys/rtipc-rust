@@ -1,13 +1,7 @@
 use nix::errno::Errno;
 
 #[derive(Debug)]
-pub enum ShmPointerError {
-    OutOfBounds,
-    Misalignment,
-}
-
-#[derive(Debug)]
-pub enum RequestPointerError {
+pub enum ShmMapError {
     OutOfBounds,
     Misalignment,
 }
@@ -22,77 +16,59 @@ pub enum HeaderError {
 }
 
 #[derive(Debug)]
-pub enum ProcessRequestError {
+pub enum ResourceError {
+    InvalidArgument,
     Errno(Errno),
-    RequestPointerError(RequestPointerError),
-    ShmPoniterError(ShmPointerError),
+    ShmMapError(ShmMapError),
+}
+
+#[derive(Debug)]
+pub enum RequestError {
+    OutOfBounds,
     HeaderError(HeaderError),
+}
+
+#[derive(Debug)]
+pub enum TransferError {
+    ResourceError(ResourceError),
+    RequestError(RequestError),
     MissingFileDescriptor,
+    Rejected,
     ResponseError,
 }
 
-#[derive(Debug)]
-pub enum CreateRequestError {
-    InvalidConfig,
-    Errno(Errno),
-    RequestPointerError(RequestPointerError),
-    ShmPoniterError(ShmPointerError),
-    HeaderError(HeaderError),
-    ResponseError,
-}
-
-#[derive(Debug)]
-pub enum RtIpcError {
-    Errno(Errno),
-    Shm(ShmPointerError),
-    Message(ProcessRequestError),
-    Argument,
-}
-
-impl From<Errno> for CreateRequestError {
-    fn from(e: Errno) -> CreateRequestError {
-        CreateRequestError::Errno(e)
+impl From<Errno> for ResourceError {
+    fn from(e: Errno) -> ResourceError {
+        ResourceError::Errno(e)
     }
 }
 
-impl From<ShmPointerError> for CreateRequestError {
-    fn from(e: ShmPointerError) -> CreateRequestError {
-        CreateRequestError::ShmPoniterError(e)
+impl From<ShmMapError> for ResourceError {
+    fn from(e: ShmMapError) -> ResourceError {
+        ResourceError::ShmMapError(e)
     }
 }
 
-impl From<RequestPointerError> for CreateRequestError {
-    fn from(e: RequestPointerError) -> CreateRequestError {
-        CreateRequestError::RequestPointerError(e)
+impl From<ResourceError> for TransferError {
+    fn from(e: ResourceError) -> TransferError {
+        TransferError::ResourceError(e)
     }
 }
 
-impl From<HeaderError> for CreateRequestError {
-    fn from(e: HeaderError) -> CreateRequestError {
-        CreateRequestError::HeaderError(e)
+impl From<Errno> for TransferError {
+    fn from(e: Errno) -> TransferError {
+        TransferError::ResourceError(ResourceError::Errno(e))
     }
 }
 
-impl From<Errno> for ProcessRequestError {
-    fn from(e: Errno) -> ProcessRequestError {
-        ProcessRequestError::Errno(e)
+impl From<RequestError> for TransferError {
+    fn from(e: RequestError) -> TransferError {
+        TransferError::RequestError(e)
     }
 }
 
-impl From<ShmPointerError> for ProcessRequestError {
-    fn from(e: ShmPointerError) -> ProcessRequestError {
-        ProcessRequestError::ShmPoniterError(e)
-    }
-}
-
-impl From<RequestPointerError> for ProcessRequestError {
-    fn from(e: RequestPointerError) -> ProcessRequestError {
-        ProcessRequestError::RequestPointerError(e)
-    }
-}
-
-impl From<HeaderError> for ProcessRequestError {
-    fn from(e: HeaderError) -> ProcessRequestError {
-        ProcessRequestError::HeaderError(e)
+impl From<HeaderError> for RequestError {
+    fn from(e: HeaderError) -> RequestError {
+        RequestError::HeaderError(e)
     }
 }

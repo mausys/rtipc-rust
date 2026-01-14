@@ -75,9 +75,9 @@ impl Layout {
     }
 }
 
-fn request_read<T>(request: &[u8], offset: usize) -> Result<T, RequestPointerError> {
+fn request_read<T>(request: &[u8], offset: usize) -> Result<T, RequestError> {
     if offset + size_of::<T>() > request.len() {
-        return Err(RequestPointerError::OutOfBounds);
+        return Err(RequestError::OutOfBounds);
     }
 
     let ptr = unsafe { request.as_ptr().byte_add(offset) as *const T };
@@ -85,9 +85,9 @@ fn request_read<T>(request: &[u8], offset: usize) -> Result<T, RequestPointerErr
     Ok(unsafe { ptr.read_unaligned() })
 }
 
-fn req_get_mut_ptr<T>(request: &mut [u8], offset: usize) -> Result<*mut T, RequestPointerError> {
+fn req_get_mut_ptr<T>(request: &mut [u8], offset: usize) -> Result<*mut T, RequestError> {
     if offset + size_of::<T>() > request.len() {
-        return Err(RequestPointerError::OutOfBounds);
+        return Err(RequestError::OutOfBounds);
     }
 
     let ptr = unsafe { request.as_mut_ptr().byte_add(offset) as *mut T };
@@ -95,23 +95,15 @@ fn req_get_mut_ptr<T>(request: &mut [u8], offset: usize) -> Result<*mut T, Reque
     Ok(ptr)
 }
 
-fn request_write<T: Copy>(
-    request: &[u8],
-    offset: usize,
-    val: &T,
-) -> Result<(), RequestPointerError> {
+fn request_write<T: Copy>(request: &[u8], offset: usize, val: &T) -> Result<(), RequestError> {
     if offset + size_of::<T>() > request.len() {
-        return Err(RequestPointerError::OutOfBounds);
+        return Err(RequestError::OutOfBounds);
     }
 
     let ptr = unsafe { request.as_ptr().byte_add(offset) as *mut T };
 
-    if !ptr.is_aligned() {
-        return Err(RequestPointerError::Misalignment);
-    }
-
     unsafe {
-        ptr.write(*val);
+        ptr.write_unaligned(*val);
     }
 
     Ok(())
@@ -140,14 +132,14 @@ fn request_read_entry(
     request: &[u8],
     entry_offset: &mut usize,
     info_offset: &mut usize,
-) -> Result<ChannelConfig, RequestPointerError> {
+) -> Result<ChannelConfig, RequestError> {
     let entry = request_read::<ChannelEntry>(request, *entry_offset).inspect_err(|_| {
         error!("request message too short");
     })?;
 
     if entry.message_size == 0 {
         error!("request: message size = 0 not allowed");
-        return Err(RequestPointerError::OutOfBounds);
+        return Err(RequestError::OutOfBounds);
     }
 
     let message_size = NonZeroUsize::new(entry.message_size as usize).unwrap();
@@ -156,7 +148,7 @@ fn request_read_entry(
 
     if *info_offset + info_size > request.len() {
         error!("request message too small for channel infos");
-        return Err(RequestPointerError::OutOfBounds);
+        return Err(RequestError::OutOfBounds);
     }
 
     let info = match info_size {
@@ -177,12 +169,10 @@ fn request_read_entry(
     })
 }
 
-pub fn parse_request(request: &[u8]) -> Result<VectorConfig, ProcessRequestError> {
+pub fn parse_request(request: &[u8]) -> Result<VectorConfig, RequestError> {
     let header = request
         .get(0..HEADER_SIZE)
-        .ok_or(ProcessRequestError::RequestPointerError(
-            RequestPointerError::OutOfBounds,
-        ))?;
+        .ok_or(RequestError::OutOfBounds)?;
 
     verify_header(header).inspect_err(|e| {
         error!("parse header failed {e:?}");
@@ -211,9 +201,7 @@ pub fn parse_request(request: &[u8]) -> Result<VectorConfig, ProcessRequestError
 
     if channel_info_offset > request.len() {
         error!("request message too small for vector info");
-        return Err(ProcessRequestError::RequestPointerError(
-            RequestPointerError::OutOfBounds,
-        ));
+        return Err(RequestError::OutOfBounds);
     }
 
     let info: Vec<u8> = request[vector_info_offset..channel_info_offset].to_vec();
@@ -286,17 +274,17 @@ pub fn create_request(vconfig: &VectorConfig) -> Vec<u8> {
     request
 }
 
-pub(crate) fn create_response(result: &Result<(), &ProcessRequestError>) -> Vec<u8> {
-    if result.is_ok() {
+pub(crate) fn create_response(success: bool) -> Vec<u8> {
+    if success {
         vec![0, 0, 0, 0]
     } else {
         vec![0xff, 0xff, 0xff, 0xff]
     }
 }
 
-pub(crate) fn parse_response(response: &[u8]) -> Result<(), CreateRequestError> {
+pub(crate) fn parse_response(response: &[u8]) -> Result<(), TransferError> {
     if response != vec![0, 0, 0, 0] {
-        Err(CreateRequestError::ResponseError)
+        Err(TransferError::ResponseError)
     } else {
         Ok(())
     }

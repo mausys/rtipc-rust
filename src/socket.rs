@@ -7,10 +7,12 @@ use nix::NixPath;
 use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
+use crate::channel::ChannelVector;
 use crate::error::*;
 use crate::protocol::{create_request, create_response, parse_request, parse_response};
-use crate::unix_message::{UnixMessageRx, UnixMessageTx};
-use crate::{ChannelVector, VectorConfig, ChannelIn, VectorIn};
+use crate::resource::VectorResource;
+use crate::unix::{UnixMessageRx, UnixMessageTx};
+use crate::VectorConfig;
 
 pub struct Server {
     sockfd: OwnedFd,
@@ -31,9 +33,9 @@ impl Server {
         Ok(Self { sockfd, addr })
     }
 
-    pub fn conditional_accept<F>(&self, filter: F) -> Result<ChannelVector, ProcessRequestError>
+    pub fn conditional_accept<F>(&self, filter: F) -> Result<ChannelVector, TransferError>
     where
-        F: Fn(&ChannelVector) -> bool,
+        F: Fn(&VectorResource) -> bool,
     {
         let cfd = accept(self.sockfd.as_raw_fd())?;
         let mut req = UnixMessageRx::receive(cfd.as_raw_fd())?;
@@ -41,58 +43,28 @@ impl Server {
         let mut fds = req.take_fds();
         let vconfig = parse_request(req.content())?;
 
-        let shmfd = fds.pop_front().ok_or(ProcessRequestError::MissingFileDescriptor)?;
+        let shmfd = fds
+            .pop_front()
+            .ok_or(TransferError::MissingFileDescriptor)?;
 
-        let mut consumers = Vec::<ChannelIn>::new();
+        let rsc = VectorResource::new(&vconfig, shmfd, fds)?;
 
-        for config in vconfig.consumers {
-            let channel = if config.eventfd {
-                let fd = fds.pop_front().ok_or(ProcessRequestError::MissingFileDescriptor)?;
-                ChannelIn{queue: config.queue, eventfd: Some(fd)}
-            } else {
-                ChannelIn{queue: config.queue, eventfd: None}
-            };
-            consumers.push(channel);
+        if !filter(&rsc) {
+            return Err(TransferError::Rejected);
         }
 
-        let mut producers = Vec::<ChannelIn>::new();
+        let vec = ChannelVector::new(rsc)?;
 
-        for config in vconfig.producers {
-            let channel = if config.eventfd {
-            let fd = fds.pop_front().ok_or(ProcessRequestError::MissingFileDescriptor)?;
-                ChannelIn{queue: config.queue, eventfd: Some(fd)}
-            } else {
-                ChannelIn{queue: config.queue, eventfd: None}
-            };
-            producers.push(channel);
-        }
-
-        let vin = VectorIn {
-            consumers,
-            producers,
-            info: vconfig.info,
-            shmfd,
-        };
-
-        let result = {
-            let vector = ChannelVector::map(vin)?;
-            if !filter(&vector) {
-                Err(ProcessRequestError::ResponseError)
-            } else {
-                Ok(vector)
-            }
-        };
-
-        let response_msg = create_response(&result.as_ref().map(|_| ()));
+        let response_msg = create_response(true);
 
         let response = UnixMessageTx::new(response_msg, Vec::with_capacity(0));
 
         response.send(cfd.as_raw_fd())?;
 
-        result
+        Ok(vec)
     }
 
-    pub fn accept(&self) -> Result<ChannelVector, ProcessRequestError> {
+    pub fn accept(&self) -> Result<ChannelVector, TransferError> {
         self.conditional_accept(|_| true)
     }
 }
@@ -100,10 +72,11 @@ impl Server {
 pub fn client_connect_fd(
     socket: RawFd,
     vconfig: VectorConfig,
-) -> Result<ChannelVector, CreateRequestError> {
-    let vec = ChannelVector::new(&vconfig)?;
+) -> Result<ChannelVector, TransferError> {
+    let rsc = VectorResource::allocate(&vconfig)?;
+
     let req_msg = create_request(&vconfig);
-    let fds = vec.collect_fds();
+    let fds = rsc.collect_fds();
 
     let req = UnixMessageTx::new(req_msg, fds);
 
@@ -113,13 +86,15 @@ pub fn client_connect_fd(
 
     parse_response(response.content().as_slice())?;
 
+    let vec = ChannelVector::new(rsc)?;
+
     Ok(vec)
 }
 
 pub fn client_connect<P: ?Sized + NixPath>(
     path: &P,
     vconfig: VectorConfig,
-) -> Result<ChannelVector, CreateRequestError> {
+) -> Result<ChannelVector, TransferError> {
     let socket = socket(
         AddressFamily::Unix,
         SockType::SeqPacket,
@@ -131,10 +106,10 @@ pub fn client_connect<P: ?Sized + NixPath>(
 
     connect(socket.as_raw_fd(), &addr)?;
 
-    let vec = ChannelVector::new(&vconfig)?;
+    let rsc = VectorResource::allocate(&vconfig)?;
 
     let req_msg = create_request(&vconfig);
-    let fds = vec.collect_fds();
+    let fds = rsc.collect_fds();
 
     let req = UnixMessageTx::new(req_msg, fds);
 
@@ -143,6 +118,8 @@ pub fn client_connect<P: ?Sized + NixPath>(
     let response = UnixMessageRx::receive(socket.as_raw_fd())?;
 
     parse_response(response.content().as_slice())?;
+
+    let vec = ChannelVector::new(rsc)?;
 
     Ok(vec)
 }

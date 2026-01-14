@@ -4,18 +4,17 @@ mod cache_env;
 mod cache_linux;
 mod channel;
 pub mod error;
-mod fd;
 mod header;
 mod protocol;
 mod queue;
+mod resource;
 mod shm;
 mod socket;
-mod unix_message;
+mod unix;
 
 #[macro_use]
 extern crate nix;
 
-use std::os::fd::{BorrowedFd, OwnedFd};
 use std::{num::NonZeroUsize, sync::atomic::AtomicU32};
 
 #[cfg(feature = "predefined_cacheline_size")]
@@ -23,9 +22,10 @@ use crate::cache_env::max_cacheline_size;
 #[cfg(not(feature = "predefined_cacheline_size"))]
 use crate::cache_linux::max_cacheline_size;
 
-pub use channel::{ChannelVector, Consumer, Producer};
+pub use channel::{Consumer, Producer};
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
+pub use resource::VectorResource;
 pub use socket::{client_connect, client_connect_fd, Server};
 
 pub use log;
@@ -76,48 +76,6 @@ pub struct VectorConfig {
     pub producers: Vec<ChannelConfig>,
     pub consumers: Vec<ChannelConfig>,
     pub info: Vec<u8>,
-}
-
-pub struct ChannelIn {
-    pub queue: QueueConfig,
-    pub eventfd: Option<OwnedFd>,
-}
-
-impl ChannelIn {
-    pub fn new(config: &QueueConfig, eventfd: Option<OwnedFd>) -> Self {
-        ChannelIn {
-            queue: config.clone(),
-            eventfd,
-        }
-    }
-}
-
-pub struct VectorIn {
-    pub producers: Vec<ChannelIn>,
-    pub consumers: Vec<ChannelIn>,
-    pub info: Vec<u8>,
-    pub shmfd: OwnedFd,
-}
-
-pub struct ChannelOut<'a> {
-    pub queue: QueueConfig,
-    pub eventfd: Option<BorrowedFd<'a>>,
-}
-
-impl<'a> ChannelOut<'a> {
-    pub fn new(config: &QueueConfig, eventfd: Option<BorrowedFd<'a>>) -> Self {
-        ChannelOut {
-            queue: config.clone(),
-            eventfd,
-        }
-    }
-}
-
-pub struct VectorOut<'a> {
-    pub producers: Vec<ChannelOut<'a>>,
-    pub consumers: Vec<ChannelOut<'a>>,
-    pub info: &'a Vec<u8>,
-    pub shmfd: BorrowedFd<'a>,
 }
 
 pub(crate) fn calc_shm_size(group0: &[ChannelConfig], group1: &[ChannelConfig]) -> usize {

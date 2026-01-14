@@ -61,7 +61,7 @@ pub enum ProduceTryResult {
     Success,
 }
 
-struct Queue {
+pub(crate) struct Queue {
     _chunk: Chunk,
     message_size: NonZeroUsize,
     head: *mut Index,
@@ -71,7 +71,7 @@ struct Queue {
 }
 
 impl Queue {
-    pub fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmPointerError> {
+    pub(crate) fn new(chunk: Chunk, config: QueueConfig) -> Result<Self, ShmMapError> {
         let queue_len = config.additional_messages + MIN_MSGS;
         let index_size = size_of::<Index>();
         let queue_size = (2 + queue_len) * index_size;
@@ -122,11 +122,7 @@ impl Queue {
         self.head_store(INVALID_INDEX);
     }
 
-    pub fn additional_messages(&self) -> usize {
-        self.chain.len() - MIN_MSGS
-    }
-
-    pub(self) fn message_size(&self) -> NonZeroUsize {
+    pub(crate) fn message_size(&self) -> NonZeroUsize {
         self.message_size
     }
 
@@ -193,8 +189,7 @@ pub struct ProducerQueue {
 }
 
 impl ProducerQueue {
-    pub(crate) fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmPointerError> {
-        let queue = Queue::new(chunk, config)?;
+    pub(crate) fn new(queue: Queue) -> Self {
         let queue_len = queue.len();
         let mut chain: Vec<Index> = Vec::with_capacity(queue_len);
         let last = queue_len - 1;
@@ -207,25 +202,13 @@ impl ProducerQueue {
         queue.queue_store(last as Index, 0);
         chain.push(0);
 
-        Ok(Self {
+        Self {
             queue,
             head: INVALID_INDEX,
             chain,
             current: 0,
             overrun: INVALID_INDEX,
-        })
-    }
-
-    pub(crate) fn init(&self) {
-        self.queue.init();
-    }
-
-    pub(crate) fn message_size(&self) -> NonZeroUsize {
-        self.queue.message_size()
-    }
-
-    pub(crate) fn additional_messages(&self) -> usize {
-        self.queue.additional_messages()
+        }
     }
 
     pub(crate) fn current_message(&self) -> *mut () {
@@ -439,21 +422,8 @@ pub struct ConsumerQueue {
 }
 
 impl ConsumerQueue {
-    pub(crate) fn new(chunk: Chunk, config: &QueueConfig) -> Result<Self, ShmPointerError> {
-        let queue = Queue::new(chunk, config)?;
-        Ok(Self { queue, current: 0 })
-    }
-
-    pub(crate) fn init(&self) {
-        self.queue.init();
-    }
-
-    pub(crate) fn message_size(&self) -> NonZeroUsize {
-        self.queue.message_size()
-    }
-
-    pub(crate) fn additional_messages(&self) -> usize {
-        self.queue.additional_messages()
+    pub(crate) fn new(queue: Queue) -> Self {
+        Self { queue, current: 0 }
     }
 
     pub(crate) fn current_message(&self) -> Option<*const ()> {

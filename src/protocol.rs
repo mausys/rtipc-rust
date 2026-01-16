@@ -1,10 +1,10 @@
 use std::num::NonZeroUsize;
 
 use crate::{
-    error::*,
-    header::{verify_header, write_header, HEADER_SIZE},
-    log::error,
     ChannelConfig, QueueConfig, VectorConfig,
+    error::*,
+    header::{HEADER_SIZE, verify_header, write_header},
+    log::error,
 };
 
 #[repr(C)]

@@ -26,7 +26,7 @@ pub use channel::{ChannelVector, Consumer, Producer};
 pub use error::*;
 pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
 pub use resource::VectorResource;
-pub use socket::{client_connect, client_connect_fd, Server};
+pub use socket::{Server, client_connect, client_connect_fd};
 
 pub use log;
 

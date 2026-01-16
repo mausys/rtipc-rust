@@ -7,19 +7,19 @@ use std::time::Duration;
 
 use nix::errno::Errno;
 
-use rtipc::client_connect;
-use rtipc::error::*;
 use rtipc::ChannelVector;
 use rtipc::ConsumeResult;
 use rtipc::Consumer;
 use rtipc::Producer;
+use rtipc::client_connect;
+use rtipc::error::*;
 use rtipc::{ChannelConfig, QueueConfig, VectorConfig};
 
-use crate::common::wait_pollin;
 use crate::common::CommandId;
 use crate::common::MsgCommand;
 use crate::common::MsgEvent;
 use crate::common::MsgResponse;
+use crate::common::wait_pollin;
 
 mod common;
 

@@ -7,10 +7,9 @@ use std::{
 use nix::sys::eventfd::EventFd;
 
 use crate::{
-    calc_shm_size,
+    QueueConfig, VectorConfig, calc_shm_size,
     error::*,
     unix::{check_memfd, eventfd_create, into_eventfd, shmfd_create},
-    QueueConfig, VectorConfig,
 };
 use nix::errno::Errno;
 

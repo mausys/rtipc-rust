@@ -1,18 +1,18 @@
+use nix::NixPath;
 use nix::errno::Errno;
 use nix::sys::socket::{
-    accept, bind, connect, listen, socket, AddressFamily, Backlog, SockFlag, SockType, UnixAddr,
+    AddressFamily, Backlog, SockFlag, SockType, UnixAddr, accept, bind, connect, listen, socket,
 };
 use nix::unistd::unlink;
-use nix::NixPath;
-use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
+use std::os::fd::{OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
+use crate::VectorConfig;
 use crate::channel::ChannelVector;
 use crate::error::*;
 use crate::protocol::{create_request, create_response, parse_request, parse_response};
 use crate::resource::VectorResource;
 use crate::unix::{UnixMessageRx, UnixMessageTx};
-use crate::VectorConfig;
 
 pub struct Server {
     sockfd: OwnedFd,

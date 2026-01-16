@@ -13,7 +13,7 @@ use nix::{
     errno::Errno,
     libc::c_void,
     sys::{
-        mman::{mlock, mmap, munmap, MapFlags, ProtFlags},
+        mman::{MapFlags, ProtFlags, mlock, mmap, munmap},
         stat::fstat,
     },
 };

@@ -5,15 +5,15 @@ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::io::RawFd;
 
 use nix::{
+    Result,
     errno::Errno,
-    fcntl::{fcntl, readlink, SealFlag, F_ADD_SEALS},
+    fcntl::{F_ADD_SEALS, SealFlag, fcntl, readlink},
     sys::{
         eventfd::{EfdFlags, EventFd},
-        memfd::{memfd_create, MFdFlags},
-        socket::{recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags},
+        memfd::{MFdFlags, memfd_create},
+        socket::{ControlMessage, ControlMessageOwned, MsgFlags, recvmsg, sendmsg},
     },
     unistd::ftruncate,
-    Result,
 };
 
 use crate::log::*;

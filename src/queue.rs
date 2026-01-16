@@ -1,10 +1,10 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
 
+use crate::QueueConfig;
 use crate::cacheline_aligned;
 use crate::error::*;
 use crate::shm::{Chunk, Span};
-use crate::QueueConfig;
 
 use crate::AtomicIndex;
 use crate::Index;

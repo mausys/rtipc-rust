@@ -202,7 +202,7 @@ impl ChannelVector {
         Ok(channels)
     }
 
-    pub(crate) fn new(vrsc: VectorResource) -> Result<Self, ResourceError> {
+    pub fn new(vrsc: VectorResource) -> Result<Self, ResourceError> {
         let shm = SharedMemory::new(vrsc.shmfd)?;
 
         let mut shm_offset = 0;

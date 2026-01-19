@@ -76,7 +76,7 @@ impl<T: Copy> Producer<T> {
         result
     }
 
-    pub fn eventfd(&self) -> Option<BorrowedFd> {
+    pub fn eventfd(&self) -> Option<BorrowedFd<'_>> {
         self.eventfd.as_ref().map(|fd| fd.as_fd())
     }
 
@@ -124,13 +124,13 @@ impl<T: Copy> Consumer<T> {
     }
 
     pub fn pop(&mut self) -> ConsumeResult {
-        if let Some(eventfd) = self.eventfd.as_ref() {
-            if eventfd.read().is_err() {
-                if self.queue.current_message().is_some() {
-                    return ConsumeResult::NoNewMessage;
-                } else {
-                    return ConsumeResult::NoMessage;
-                }
+        if let Some(eventfd) = self.eventfd.as_ref()
+            && eventfd.read().is_err()
+        {
+            if self.queue.current_message().is_some() {
+                return ConsumeResult::NoNewMessage;
+            } else {
+                return ConsumeResult::NoMessage;
             }
         }
 
@@ -149,7 +149,7 @@ impl<T: Copy> Consumer<T> {
         }
     }
 
-    pub fn eventfd(&self) -> Option<BorrowedFd> {
+    pub fn eventfd(&self) -> Option<BorrowedFd<'_>> {
         self.eventfd.as_ref().map(|fd| fd.as_fd())
     }
 

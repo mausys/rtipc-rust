@@ -4,7 +4,7 @@ use nix::sys::socket::{
     AddressFamily, Backlog, SockFlag, SockType, UnixAddr, accept, bind, connect, listen, socket,
 };
 use nix::unistd::unlink;
-use std::os::fd::{OwnedFd, RawFd};
+use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::io::AsRawFd;
 
 use crate::VectorConfig;
@@ -46,7 +46,11 @@ impl Server {
             .pop_front()
             .ok_or(TransferError::MissingFileDescriptor)?;
 
-        let rsc = VectorResource::new(&vconfig, shmfd, fds)?;
+        let n_consumer_eventfds = vconfig.count_consumer_eventfds();
+
+        let producer_eventfds = fds.split_off(n_consumer_eventfds);
+
+        let rsc = VectorResource::new(&vconfig, shmfd, fds, producer_eventfds)?;
 
         if !filter(&rsc) {
             return Err(TransferError::Rejected);
@@ -85,7 +89,15 @@ pub fn client_connect_fd(
     let rsc = VectorResource::allocate(&vconfig)?;
 
     let req_msg = create_request(&vconfig);
-    let fds = rsc.collect_fds();
+
+    let mut producer_fds = rsc.collect_producer_eventfds();
+    let mut consumer_fds = rsc.collect_consumer_eventfds();
+
+    let mut fds = Vec::<BorrowedFd<'_>>::new();
+
+    fds.push(rsc.shmfd());
+    fds.append(&mut producer_fds);
+    fds.append(&mut consumer_fds);
 
     let req = UnixMessageTx::new(req_msg, fds);
 
@@ -118,7 +130,15 @@ pub fn client_connect<P: ?Sized + NixPath>(
     let rsc = VectorResource::allocate(&vconfig)?;
 
     let req_msg = create_request(&vconfig);
-    let fds = rsc.collect_fds();
+
+    let mut producer_fds = rsc.collect_producer_eventfds();
+    let mut consumer_fds = rsc.collect_consumer_eventfds();
+
+    let mut fds = Vec::<BorrowedFd<'_>>::new();
+
+    fds.push(rsc.shmfd());
+    fds.append(&mut producer_fds);
+    fds.append(&mut consumer_fds);
 
     let req = UnixMessageTx::new(req_msg, fds);
 

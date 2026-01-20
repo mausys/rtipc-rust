@@ -78,6 +78,16 @@ pub struct VectorConfig {
     pub info: Vec<u8>,
 }
 
+impl VectorConfig {
+    pub fn count_producer_eventfds(&self) -> usize {
+        self.producers.iter().map(|c| c.eventfd as usize).sum()
+    }
+
+    pub fn count_consumer_eventfds(&self) -> usize {
+        self.consumers.iter().map(|c| c.eventfd as usize).sum()
+    }
+}
+
 pub(crate) fn calc_shm_size(group0: &[ChannelConfig], group1: &[ChannelConfig]) -> usize {
     let mut size = 0;
 

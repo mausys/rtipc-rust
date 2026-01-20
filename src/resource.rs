@@ -7,7 +7,7 @@ use std::{
 use nix::sys::eventfd::EventFd;
 
 use crate::{
-    QueueConfig, VectorConfig, calc_shm_size,
+    ChannelConfig, QueueConfig, VectorConfig, calc_shm_size,
     error::*,
     unix::{check_memfd, eventfd_create, into_eventfd, shmfd_create},
 };
@@ -29,53 +29,47 @@ impl ChannelResource {
 }
 
 pub struct VectorResource {
-    pub producers: Vec<ChannelResource>,
     pub consumers: Vec<ChannelResource>,
+    pub producers: Vec<ChannelResource>,
     pub info: Vec<u8>,
     pub shmfd: OwnedFd,
     pub owner: bool,
 }
 
 impl VectorResource {
+    fn create_channel_resources(
+        configs: &Vec<ChannelConfig>,
+        mut eventfds: VecDeque<OwnedFd>,
+    ) -> Result<Vec<ChannelResource>, TransferError> {
+        let mut channels = Vec::<ChannelResource>::with_capacity(configs.len());
+
+        for config in configs {
+            let eventfd = if config.eventfd {
+                let eventfd = eventfds
+                    .pop_front()
+                    .ok_or(TransferError::MissingFileDescriptor)?;
+                Some(eventfd)
+            } else {
+                None
+            };
+
+            let channel = ChannelResource::new(&config.queue, eventfd)?;
+
+            channels.push(channel);
+        }
+
+        Ok(channels)
+    }
     pub fn new(
         vconfig: &VectorConfig,
         shmfd: OwnedFd,
-        mut eventfds: VecDeque<OwnedFd>,
+        consumer_eventfds: VecDeque<OwnedFd>,
+        producer_eventfds: VecDeque<OwnedFd>,
     ) -> Result<Self, TransferError> {
         check_memfd(shmfd.as_fd())?;
 
-        let mut consumers = Vec::<ChannelResource>::with_capacity(vconfig.consumers.len());
-        let mut producers = Vec::<ChannelResource>::with_capacity(vconfig.producers.len());
-
-        for config in &vconfig.consumers {
-            let eventfd = if config.eventfd {
-                let eventfd = eventfds
-                    .pop_front()
-                    .ok_or(TransferError::MissingFileDescriptor)?;
-                Some(eventfd)
-            } else {
-                None
-            };
-
-            let channel = ChannelResource::new(&config.queue, eventfd)?;
-
-            consumers.push(channel);
-        }
-
-        for config in &vconfig.producers {
-            let eventfd = if config.eventfd {
-                let eventfd = eventfds
-                    .pop_front()
-                    .ok_or(TransferError::MissingFileDescriptor)?;
-                Some(eventfd)
-            } else {
-                None
-            };
-
-            let channel = ChannelResource::new(&config.queue, eventfd)?;
-
-            producers.push(channel);
-        }
+        let consumers = Self::create_channel_resources(&vconfig.consumers, consumer_eventfds)?;
+        let producers = Self::create_channel_resources(&vconfig.producers, producer_eventfds)?;
 
         Ok(Self {
             producers,
@@ -95,22 +89,6 @@ impl VectorResource {
 
         let shmfd = shmfd_create(shm_size)?;
 
-        for config in &vconfig.producers {
-            let eventfd = if config.eventfd {
-                let eventfd = eventfd_create()?;
-                Some(eventfd)
-            } else {
-                None
-            };
-
-            let channel = ChannelResource {
-                config: config.queue.clone(),
-                eventfd,
-            };
-
-            producers.push(channel);
-        }
-
         for config in &vconfig.consumers {
             let eventfd = if config.eventfd {
                 let eventfd = eventfd_create()?;
@@ -127,9 +105,25 @@ impl VectorResource {
             consumers.push(channel);
         }
 
+        for config in &vconfig.producers {
+            let eventfd = if config.eventfd {
+                let eventfd = eventfd_create()?;
+                Some(eventfd)
+            } else {
+                None
+            };
+
+            let channel = ChannelResource {
+                config: config.queue.clone(),
+                eventfd,
+            };
+
+            producers.push(channel);
+        }
+
         Ok(Self {
-            producers,
             consumers,
+            producers,
             info: vconfig.info.clone(),
             shmfd,
             owner: true,
@@ -168,25 +162,24 @@ impl VectorResource {
         &self.info
     }
 
-    pub fn collect_fds(&self) -> Vec<BorrowedFd<'_>> {
-        let mut fds = Vec::<BorrowedFd<'_>>::new();
+    pub fn shmfd(&self) -> BorrowedFd<'_> {
+        self.shmfd.as_fd()
+    }
 
-        fds.push(self.shmfd.as_fd());
-
-        let mut producers: Vec<BorrowedFd<'_>> = self
-            .producers
+    fn collect_eventfds(channels: &[ChannelResource]) -> Vec<BorrowedFd<'_>> {
+        let fds: Vec<BorrowedFd<'_>> = channels
             .iter()
             .filter_map(|c| c.eventfd.as_ref().map(|fd| fd.as_fd()))
             .collect();
-        fds.append(&mut producers);
-
-        let mut consumers: Vec<BorrowedFd<'_>> = self
-            .consumers
-            .iter()
-            .filter_map(|c| c.eventfd.as_ref().map(|fd| fd.as_fd()))
-            .collect();
-        fds.append(&mut consumers);
 
         fds
+    }
+
+    pub fn collect_consumer_eventfds(&self) -> Vec<BorrowedFd<'_>> {
+        Self::collect_eventfds(&self.consumers)
+    }
+
+    pub fn collect_producer_eventfds(&self) -> Vec<BorrowedFd<'_>> {
+        Self::collect_eventfds(&self.producers)
     }
 }

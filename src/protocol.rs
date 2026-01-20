@@ -263,13 +263,9 @@ pub fn create_request(vconfig: &VectorConfig) -> Vec<u8> {
 
     let mut info_offset = layout.channel_infos;
 
-    for config in vconfig.producers.iter() {
-        request_write_channel(&mut request, config, &mut entry_offset, &mut info_offset);
-    }
+    vconfig.producers.iter().for_each(|c| request_write_channel(&mut request, c, &mut entry_offset, &mut info_offset));
 
-    for config in vconfig.consumers.iter() {
-        request_write_channel(&mut request, config, &mut entry_offset, &mut info_offset);
-    }
+    vconfig.consumers.iter().for_each(|c| request_write_channel(&mut request, c, &mut entry_offset, &mut info_offset));
 
     request
 }

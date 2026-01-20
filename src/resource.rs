@@ -7,7 +7,7 @@ use std::{
 use nix::sys::eventfd::EventFd;
 
 use crate::{
-    ChannelConfig, QueueConfig, VectorConfig, calc_shm_size,
+    ChannelConfig, QueueConfig, VectorConfig,
     error::*,
     unix::{check_memfd, eventfd_create, into_eventfd, shmfd_create},
 };
@@ -84,8 +84,8 @@ impl VectorResource {
         let mut producers = Vec::<ChannelResource>::with_capacity(vconfig.producers.len());
         let mut consumers = Vec::<ChannelResource>::with_capacity(vconfig.consumers.len());
 
-        let shm_size = NonZeroUsize::new(calc_shm_size(&vconfig.producers, &vconfig.consumers))
-            .ok_or(ResourceError::InvalidArgument)?;
+        let shm_size =
+            NonZeroUsize::new(vconfig.calc_shm_size()).ok_or(ResourceError::InvalidArgument)?;
 
         let shmfd = shmfd_create(shm_size)?;
 

@@ -86,18 +86,20 @@ impl VectorConfig {
     pub fn count_consumer_eventfds(&self) -> usize {
         self.consumers.iter().map(|c| c.eventfd as usize).sum()
     }
-}
 
-pub(crate) fn calc_shm_size(group0: &[ChannelConfig], group1: &[ChannelConfig]) -> usize {
-    let mut size = 0;
+    pub fn calc_shm_size(&self) -> usize {
+        let producers_size: usize = self
+            .producers
+            .iter()
+            .map(|c| c.queue.shm_size().get())
+            .sum();
+        let consumers_size: usize = self
+            .consumers
+            .iter()
+            .map(|c| c.queue.shm_size().get())
+            .sum();
+        // size += self.consumers.iter().map(|c| c.queue.shm_size().get()).sum();
 
-    for config in group0 {
-        size += config.queue.shm_size().get();
+        producers_size + consumers_size
     }
-
-    for config in group1 {
-        size += config.queue.shm_size().get();
-    }
-
-    size
 }

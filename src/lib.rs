@@ -29,6 +29,7 @@ pub use resource::VectorResource;
 pub use socket::{Server, client_connect, client_connect_fd};
 
 pub use nix::sys::eventfd::EventFd;
+pub use nix::errno::Errno;
 
 pub use log;
 

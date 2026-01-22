@@ -28,6 +28,8 @@ pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
 pub use resource::VectorResource;
 pub use socket::{Server, client_connect, client_connect_fd};
 
+pub use nix::sys::eventfd::EventFd;
+
 pub use log;
 
 pub(crate) type AtomicIndex = AtomicU32;

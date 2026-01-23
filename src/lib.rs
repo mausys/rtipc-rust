@@ -18,9 +18,10 @@ extern crate nix;
 use std::{num::NonZeroUsize, sync::atomic::AtomicU32};
 
 #[cfg(feature = "predefined_cacheline_size")]
-use crate::cache_env::max_cacheline_size;
+pub use crate::cache_env::max_cacheline_size;
+
 #[cfg(not(feature = "predefined_cacheline_size"))]
-use crate::cache_linux::max_cacheline_size;
+pub use crate::cache_linux::max_cacheline_size;
 
 pub use channel::{ChannelVector, Consumer, Producer};
 pub use error::*;
@@ -28,14 +29,18 @@ pub use queue::{ConsumeResult, ProduceForceResult, ProduceTryResult};
 pub use resource::VectorResource;
 pub use socket::{Server, client_connect, client_connect_fd};
 
-pub use nix::sys::eventfd::EventFd;
 pub use nix::errno::Errno;
+pub use nix::sys::eventfd::EventFd;
 
 pub use log;
 
 pub(crate) type AtomicIndex = AtomicU32;
 pub(crate) type Index = u32;
 pub(crate) const MIN_MSGS: usize = 3;
+
+pub fn index_size() -> usize {
+    std::mem::size_of::<Index>()
+}
 
 pub(crate) fn mem_align(size: usize, alignment: usize) -> usize {
     (size + alignment - 1) & !(alignment - 1)
@@ -96,12 +101,12 @@ impl VectorConfig {
             .iter()
             .map(|c| c.queue.shm_size().get())
             .sum();
+
         let consumers_size: usize = self
             .consumers
             .iter()
             .map(|c| c.queue.shm_size().get())
             .sum();
-        // size += self.consumers.iter().map(|c| c.queue.shm_size().get()).sum();
 
         producers_size + consumers_size
     }

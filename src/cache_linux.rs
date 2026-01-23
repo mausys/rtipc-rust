@@ -57,7 +57,7 @@ fn read_cache(cpu: usize, index: usize) -> Result<Cache, std::io::Error> {
     })
 }
 
-pub(crate) fn max_cacheline_size() -> usize {
+pub fn max_cacheline_size() -> usize {
     static CLS: AtomicUsize = AtomicUsize::new(0);
 
     let mut cls = CLS.load(Ordering::Relaxed);

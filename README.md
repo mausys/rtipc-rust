@@ -18,6 +18,8 @@ At its core, RTIPC uses a wait-free, zero-copy, single-producer single-consumer 
 
 ### How It Works
 
+![alt text](https://github.com/mausys/rtipc-rust/blob/main/doc/flow.png)
+
 1. The client initializes a channel vector based on desired parameters.
 2. This channel vector contains one or more producer/consumer channels, all mapped onto a shared memory region.
 3. The client shares the memory region and configuration (including optional metadata) with the server via a Unix socket.

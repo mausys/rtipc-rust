@@ -5,7 +5,7 @@ use crate::error::*;
 use crate::max_cacheline_size;
 
 const RTIC_MAGIC: u16 = 0x1f0c;
-const RTIC_VERSION: u16 = 1;
+const RTIC_VERSION: u16 = 2;
 
 #[repr(C)]
 struct Header {

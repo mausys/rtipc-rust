@@ -12,10 +12,11 @@ use crate::MIN_MSGS;
 
 const INVALID_INDEX: Index = Index::MAX;
 const CONSUMED_FLAG: Index = Index::MAX - Index::MAX / 2;
+const FIRST_FLAG: Index = CONSUMED_FLAG >> 1;
 
 const ORIGIN_MASK: Index = CONSUMED_FLAG;
 
-const INDEX_MASK: Index = !ORIGIN_MASK;
+const INDEX_MASK: Index = !(ORIGIN_MASK | FIRST_FLAG);
 
 #[derive(PartialEq, Eq)]
 pub enum ConsumeResult {
@@ -229,7 +230,7 @@ impl ProducerQueue {
     fn enqueue_first_message(&mut self) {
         self.queue_store(self.current, INVALID_INDEX);
 
-        self.queue.tail_store(self.current);
+        self.queue.tail_store(self.current | FIRST_FLAG);
 
         self.head = self.current;
 
@@ -476,8 +477,12 @@ impl ConsumerQueue {
 
         if tail & CONSUMED_FLAG == 0 {
             /* producer moved tail, use it */
-            self.current = tail;
-            return ConsumeResult::SuccessMessagesDiscarded;
+            self.current = tail & INDEX_MASK;
+            if (tail & FIRST_FLAG) == FIRST_FLAG {
+                return ConsumeResult::Success;
+            } else {
+                return ConsumeResult::SuccessMessagesDiscarded;
+            }
         }
 
         /* try to get next message */

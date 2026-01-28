@@ -8,7 +8,7 @@ use std::time::Duration;
 use nix::errno::Errno;
 
 use rtipc::ChannelVector;
-use rtipc::ConsumeResult;
+use rtipc::PopResult;
 use rtipc::Consumer;
 use rtipc::Producer;
 use rtipc::client_connect;
@@ -35,16 +35,16 @@ fn handle_events(mut consumer: Consumer<MsgEvent>) -> Result<(), Errno> {
         }
 
         match consumer.pop() {
-            ConsumeResult::QueueError => panic!(),
-            ConsumeResult::NoMessage => return Err(Errno::EBADMSG),
-            ConsumeResult::NoNewMessage => return Err(Errno::EBADMSG),
-            ConsumeResult::Success => {
+            PopResult::QueueError => panic!(),
+            PopResult::NoMessage => return Err(Errno::EBADMSG),
+            PopResult::NoNewMessage => return Err(Errno::EBADMSG),
+            PopResult::Success => {
                 println!(
                     "client received event: {}",
                     consumer.current_message().unwrap()
                 )
             }
-            ConsumeResult::SuccessMessagesDiscarded => {
+            PopResult::SuccessMessagesDiscarded => {
                 println!(
                     "client received event: {}",
                     consumer.current_message().unwrap()
@@ -86,17 +86,17 @@ impl App {
 
             loop {
                 match self.response.pop() {
-                    ConsumeResult::QueueError => panic!(),
-                    ConsumeResult::NoMessage => {
+                    PopResult::QueueError => panic!(),
+                    PopResult::NoMessage => {
                         thread::sleep(pause);
                         continue;
                     }
-                    ConsumeResult::NoNewMessage => {
+                    PopResult::NoNewMessage => {
                         thread::sleep(pause);
                         continue;
                     }
-                    ConsumeResult::Success => {}
-                    ConsumeResult::SuccessMessagesDiscarded => {}
+                    PopResult::Success => {}
+                    PopResult::SuccessMessagesDiscarded => {}
                 };
 
                 println!(

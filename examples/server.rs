@@ -3,11 +3,11 @@ use nix::sys::socket::Backlog;
 use std::time::Duration;
 
 use rtipc::ChannelVector;
-use rtipc::ConsumeResult;
+use rtipc::PopResult;
 use rtipc::Consumer;
 use rtipc::Producer;
 
-use rtipc::ProduceTryResult;
+use rtipc::TryPushResult;
 
 use rtipc::Server;
 
@@ -58,11 +58,11 @@ impl App {
             let eventfd = self.command.eventfd().unwrap();
             let _ = wait_pollin(eventfd, Duration::from_millis(10));
             match self.command.pop() {
-                ConsumeResult::QueueError => panic!(),
-                ConsumeResult::NoMessage => continue,
-                ConsumeResult::NoNewMessage => continue,
-                ConsumeResult::Success => {}
-                ConsumeResult::SuccessMessagesDiscarded => {}
+                PopResult::QueueError => panic!(),
+                PopResult::NoMessage => continue,
+                PopResult::NoNewMessage => continue,
+                PopResult::Success => {}
+                PopResult::SuccessMessagesDiscarded => {}
             };
             let cmd = self.command.current_message().unwrap();
             self.response.current_message().id = cmd.id;
@@ -98,7 +98,7 @@ impl App {
             if force {
                 self.event.force_push();
             } else {
-                if self.event.try_push() == ProduceTryResult::QueueFull {
+                if self.event.try_push() == TryPushResult::QueueFull {
                     return i as i32;
                 }
             }

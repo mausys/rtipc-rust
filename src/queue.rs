@@ -19,7 +19,7 @@ const ORIGIN_MASK: Index = CONSUMED_FLAG;
 const INDEX_MASK: Index = !(ORIGIN_MASK | FIRST_FLAG);
 
 #[derive(PartialEq, Eq)]
-pub enum ConsumeResult {
+pub enum PopResult {
     /// An invalid index was written to shared memory (unrecoverable error).
     QueueError,
 
@@ -39,7 +39,7 @@ pub enum ConsumeResult {
 }
 
 #[derive(PartialEq, Eq)]
-pub enum ProduceForceResult {
+pub enum ForcePushResult {
     /// An invalid index was written to shared memory (unrecoverable error).
     QueueError,
 
@@ -51,7 +51,7 @@ pub enum ProduceForceResult {
 }
 
 #[derive(PartialEq, Eq)]
-pub enum ProduceTryResult {
+pub enum TryPushResult {
     /// An invalid index was written to shared memory (unrecoverable error).
     QueueError,
 
@@ -294,13 +294,13 @@ impl ProducerQueue {
     /* inserts the next message into the queue and
      * if the queue is full, discard the last message that is not
      * used by consumer. Returns pointer to new message */
-    pub(crate) fn force_push(&mut self) -> ProduceForceResult {
+    pub(crate) fn force_push(&mut self) -> ForcePushResult {
         let next = self.chain[self.current as usize];
 
         if self.head == INVALID_INDEX {
             self.enqueue_first_message();
             self.current = next;
-            return ProduceForceResult::Success;
+            return ForcePushResult::Success;
         }
 
         let mut discarded = false;
@@ -310,7 +310,7 @@ impl ProducerQueue {
         let tail = self.queue.tail_load();
 
         if !self.queue.is_valid_index(tail & INDEX_MASK) {
-            return ProduceForceResult::QueueError;
+            return ForcePushResult::QueueError;
         }
 
         let consumed: bool = (tail & CONSUMED_FLAG) != 0;
@@ -367,26 +367,26 @@ impl ProducerQueue {
         }
 
         if discarded {
-            ProduceForceResult::SuccessMessageDiscarded
+            ForcePushResult::SuccessMessageDiscarded
         } else {
-            ProduceForceResult::Success
+            ForcePushResult::Success
         }
     }
 
     /* trys to insert the next message into the queue */
-    pub(crate) fn try_push(&mut self) -> ProduceTryResult {
+    pub(crate) fn try_push(&mut self) -> TryPushResult {
         let next = self.chain[self.current as usize];
 
         if self.head == INVALID_INDEX {
             self.enqueue_first_message();
             self.current = next;
-            return ProduceTryResult::Success;
+            return TryPushResult::Success;
         }
 
         let tail = self.queue.tail_load();
 
         if !self.queue.is_valid_index(tail & INDEX_MASK) {
-            return ProduceTryResult::QueueError;
+            return TryPushResult::QueueError;
         }
 
         if self.overrun != INVALID_INDEX {
@@ -401,7 +401,7 @@ impl ProducerQueue {
 
                 self.current = self.overrun;
                 self.overrun = INVALID_INDEX;
-                return ProduceTryResult::Success;
+                return TryPushResult::Success;
             }
         } else {
             let full = next == (tail & INDEX_MASK);
@@ -410,10 +410,10 @@ impl ProducerQueue {
             if !full {
                 self.enqueue_message();
                 self.current = next;
-                return ProduceTryResult::Success;
+                return TryPushResult::Success;
             }
         }
-        ProduceTryResult::QueueFull
+        TryPushResult::QueueFull
     }
 }
 
@@ -432,23 +432,23 @@ impl ConsumerQueue {
         Some(ptr.cast())
     }
 
-    pub(crate) fn flush(&mut self) -> ConsumeResult {
+    pub(crate) fn flush(&mut self) -> PopResult {
         loop {
             let tail = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
             if tail == INVALID_INDEX {
                 /* or CONSUMED_FLAG doesn't change INDEX_END*/
-                return ConsumeResult::NoMessage;
+                return PopResult::NoMessage;
             }
 
             if !self.queue.is_valid_index(tail & INDEX_MASK) {
-                return ConsumeResult::QueueError;
+                return PopResult::QueueError;
             }
 
             let head = self.queue.head_load();
 
             if !self.queue.is_valid_index(head) {
-                return ConsumeResult::QueueError;
+                return PopResult::QueueError;
             }
 
             if self
@@ -459,29 +459,29 @@ impl ConsumerQueue {
                  *  otherwise the producer could fill the whole queue and the head could be the
                  *  producers current message  */
                 self.current = head;
-                return ConsumeResult::Success;
+                return PopResult::Success;
             }
         }
     }
 
-    pub(crate) fn pop(&mut self) -> ConsumeResult {
+    pub(crate) fn pop(&mut self) -> PopResult {
         let tail = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
         if tail == INVALID_INDEX {
-            return ConsumeResult::NoMessage;
+            return PopResult::NoMessage;
         }
 
         if !self.queue.is_valid_index(tail & INDEX_MASK) {
-            return ConsumeResult::QueueError;
+            return PopResult::QueueError;
         }
 
         if tail & CONSUMED_FLAG == 0 {
             /* producer moved tail, use it */
             self.current = tail & INDEX_MASK;
             if (tail & FIRST_FLAG) == FIRST_FLAG {
-                return ConsumeResult::Success;
+                return PopResult::Success;
             } else {
-                return ConsumeResult::SuccessMessagesDiscarded;
+                return PopResult::SuccessMessagesDiscarded;
             }
         }
 
@@ -489,26 +489,26 @@ impl ConsumerQueue {
         let next = self.queue.chain_load(self.current);
 
         if next == INVALID_INDEX {
-            return ConsumeResult::NoNewMessage;
+            return PopResult::NoNewMessage;
         }
 
         if !self.queue.is_valid_index(next) {
-            return ConsumeResult::QueueError;
+            return PopResult::QueueError;
         }
 
         if self.queue.tail_compare_exchange(tail, next | CONSUMED_FLAG) {
             self.current = next;
-            ConsumeResult::Success
+            PopResult::Success
         } else {
             /* producer just moved tail, use it */
             let current = self.queue.tail_fetch_or(CONSUMED_FLAG);
 
             if !self.queue.is_valid_index(current) {
-                return ConsumeResult::QueueError;
+                return PopResult::QueueError;
             }
 
             self.current = current;
-            ConsumeResult::SuccessMessagesDiscarded
+            PopResult::SuccessMessagesDiscarded
         }
     }
 }

@@ -10,7 +10,7 @@ use nix::sys::eventfd::EventFd;
 use crate::{
     error::*,
     queue::{
-        ConsumeResult, ConsumerQueue, ProduceForceResult, ProduceTryResult, ProducerQueue, Queue,
+        PopResult, ConsumerQueue, ForcePushResult, TryPushResult, ProducerQueue, Queue,
     },
     resource::{ChannelResource, VectorResource},
     shm::SharedMemory,
@@ -47,30 +47,30 @@ impl<T: Copy> Producer<T> {
         }
     }
 
-    pub fn force_push(&mut self) -> ProduceForceResult {
+    pub fn force_push(&mut self) -> ForcePushResult {
         if let Some(ref cache) = self.cache {
             *self.current_message() = *cache.clone();
         }
 
         let result = self.queue.force_push();
 
-        if result == ProduceForceResult::Success {
+        if result == ForcePushResult::Success {
             self.eventfd.as_ref().map(|fd| fd.write(1));
         }
 
         result
     }
 
-    pub fn try_push(&mut self) -> ProduceTryResult {
+    pub fn try_push(&mut self) -> TryPushResult {
         if let Some(ref cache) = self.cache {
             if self.queue.full() {
-                return ProduceTryResult::QueueFull;
+                return TryPushResult::QueueFull;
             }
             *self.current_message() = *cache.clone();
         }
 
         let result = self.queue.try_push();
-        if result == ProduceTryResult::Success {
+        if result == TryPushResult::Success {
             self.eventfd.as_ref().map(|fd| fd.write(1));
         }
         result
@@ -123,25 +123,25 @@ impl<T: Copy> Consumer<T> {
         Some(unsafe { &*ptr })
     }
 
-    pub fn pop(&mut self) -> ConsumeResult {
+    pub fn pop(&mut self) -> PopResult {
         if let Some(eventfd) = self.eventfd.as_ref()
             && eventfd.read().is_err()
         {
             if self.queue.current_message().is_some() {
-                return ConsumeResult::NoNewMessage;
+                return PopResult::NoNewMessage;
             } else {
-                return ConsumeResult::NoMessage;
+                return PopResult::NoMessage;
             }
         }
 
         self.queue.pop()
     }
 
-    pub fn flush(&mut self) -> ConsumeResult {
+    pub fn flush(&mut self) -> PopResult {
         if self.eventfd.is_some() {
-            let mut result = ConsumeResult::NoMessage;
-            while self.pop() == ConsumeResult::Success {
-                result = ConsumeResult::Success;
+            let mut result = PopResult::NoMessage;
+            while self.pop() == PopResult::Success {
+                result = PopResult::Success;
             }
             result
         } else {

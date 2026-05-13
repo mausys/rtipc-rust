@@ -3,8 +3,8 @@ use nix::sys::socket::Backlog;
 use std::time::Duration;
 
 use rtipc::ChannelVector;
-use rtipc::PopResult;
 use rtipc::Consumer;
+use rtipc::PopResult;
 use rtipc::Producer;
 
 use rtipc::TryPushResult;

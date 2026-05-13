@@ -9,6 +9,7 @@ use nix::sys::eventfd::EventFd;
 use crate::{
     ChannelConfig, QueueConfig, VectorConfig,
     error::*,
+    protocol::{create_request, parse_request},
     unix::{check_memfd, eventfd_create, into_eventfd, shmfd_create},
 };
 use nix::errno::Errno;
@@ -130,6 +131,31 @@ impl VectorResource {
         })
     }
 
+    fn get_config(&self) -> VectorConfig {
+        let consumers = self
+            .consumers
+            .iter()
+            .map(|q| ChannelConfig {
+                queue: q.config.clone(),
+                eventfd: q.eventfd.is_some(),
+            })
+            .collect();
+        let producers = self
+            .producers
+            .iter()
+            .map(|q| ChannelConfig {
+                queue: q.config.clone(),
+                eventfd: q.eventfd.is_some(),
+            })
+            .collect();
+
+        VectorConfig {
+            consumers,
+            producers,
+            info: self.info.clone(),
+        }
+    }
+
     pub fn add_consumer(
         &mut self,
         config: &QueueConfig,
@@ -181,5 +207,26 @@ impl VectorResource {
 
     pub fn collect_producer_eventfds(&self) -> Vec<BorrowedFd<'_>> {
         Self::collect_eventfds(&self.producers)
+    }
+
+    pub fn serialize(&self) -> (Vec<u8>, Vec<BorrowedFd<'_>>) {
+        let vconfig = self.get_config();
+        let req = create_request(&vconfig);
+        let producer_eventfds = Self::collect_eventfds(&self.producers);
+        let consumer_eventfds = Self::collect_eventfds(&self.consumers);
+        (req, [producer_eventfds, consumer_eventfds].concat())
+    }
+
+    pub fn deserialize(request: &[u8], mut fds: VecDeque<OwnedFd>) -> Result<Self, TransferError> {
+        let vconfig = parse_request(request)?;
+        let shmfd = fds
+            .pop_front()
+            .ok_or(TransferError::MissingFileDescriptor)?;
+
+        let n_consumer_eventfds = vconfig.count_consumer_eventfds();
+
+        let producer_eventfds = fds.split_off(n_consumer_eventfds);
+
+        VectorResource::new(&vconfig, shmfd, fds, producer_eventfds)
     }
 }

@@ -9,9 +9,7 @@ use nix::sys::eventfd::EventFd;
 
 use crate::{
     error::*,
-    queue::{
-        PopResult, ConsumerQueue, ForcePushResult, TryPushResult, ProducerQueue, Queue,
-    },
+    queue::{ConsumerQueue, ForcePushResult, PopResult, ProducerQueue, Queue, TryPushResult},
     resource::{ChannelResource, VectorResource},
     shm::SharedMemory,
 };

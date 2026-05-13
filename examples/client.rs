@@ -8,8 +8,8 @@ use std::time::Duration;
 use nix::errno::Errno;
 
 use rtipc::ChannelVector;
-use rtipc::PopResult;
 use rtipc::Consumer;
+use rtipc::PopResult;
 use rtipc::Producer;
 use rtipc::client_connect;
 use rtipc::error::*;

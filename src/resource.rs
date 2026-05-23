@@ -214,7 +214,15 @@ impl VectorResource {
         let req = create_request(&vconfig);
         let producer_eventfds = Self::collect_eventfds(&self.producers);
         let consumer_eventfds = Self::collect_eventfds(&self.consumers);
-        (req, [producer_eventfds, consumer_eventfds].concat())
+        (
+            req,
+            [
+                vec![self.shmfd.as_fd()],
+                producer_eventfds,
+                consumer_eventfds,
+            ]
+            .concat(),
+        )
     }
 
     pub fn deserialize(request: &[u8], mut fds: VecDeque<OwnedFd>) -> Result<Self, TransferError> {
